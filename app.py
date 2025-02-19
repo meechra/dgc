@@ -40,8 +40,8 @@ def block_dgc(mag_block, ori_block):
 
 def compute_dgc(gray, block_size=8):
     """
-    Divide the grayscale image into non-overlapping blocks and compute
-    the DGC for each block using circular variance.
+    Divide the grayscale image into non-overlapping blocks of size block_size x block_size.
+    For each block, compute the DGC using circular variance.
     Returns the local DGC map and the global DGC (average over blocks).
     """
     magnitude, orientation = compute_gradients(gray)
@@ -73,7 +73,7 @@ def main():
         The metric uses:
         - An edge confidence map (via gradient magnitude).
         - Edge orientations from Sobel gradients.
-        - Block-wise circular variance to measure the dispersion of these orientations.
+        - Block-wise circular variance (with 8x8 blocks) to measure the dispersion of these orientations.
         A higher global DGC value indicates greater disruption (potentially from steganographic embedding).
     """)
     
@@ -88,7 +88,8 @@ def main():
         st.image(img, caption="Uploaded Image", use_column_width=True)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
-        block_size = st.slider("Select Block Size (for local DGC computation)", min_value=4, max_value=32, value=8, step=2)
+        # Hard-coded block size for local DGC computation
+        block_size = 8
         
         dgc_map, global_dgc = compute_dgc(gray, block_size)
         st.write(f"**Global DGC Metric:** {global_dgc:.4f}")
@@ -96,7 +97,7 @@ def main():
         # Display local DGC heatmap
         fig, ax = plt.subplots()
         cax = ax.imshow(dgc_map, cmap='hot', interpolation='nearest')
-        ax.set_title("Local DGC per Block")
+        ax.set_title("Local DGC per Block (8x8)")
         fig.colorbar(cax)
         st.pyplot(fig)
 
