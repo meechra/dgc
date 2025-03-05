@@ -11,7 +11,7 @@ def compute_gradients(gray):
     """
     Compute gradients using the Sobel operator:
       - Gx and Gy are the horizontal and vertical gradients.
-      - Magnitude: M(x,y) = sqrt(Gx^2 + Gy^2) serves as the edge confidence measure.
+      - Magnitude: M(x,y) = sqrt(Gx^2 + Gy^2) acts as the edge confidence measure.
       - Orientation: theta(x,y) = arctan2(Gy, Gx) wrapped to [0, 2*pi).
     """
     Gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
@@ -39,7 +39,7 @@ def block_dgc(mag_block, ori_block):
     sigma = 1 - (resultant / total_weight)
     return sigma
 
-def compute_dgc_map(gray, block_size=3):
+def compute_dgc_map(gray, block_size=8):
     """
     Divide the grayscale image into non-overlapping blocks of size block_size x block_size.
     For each block, compute the local DGC (circular variance of edge orientations).
@@ -61,7 +61,7 @@ def compute_dgc_map(gray, block_size=3):
             dgc_map[i, j] = sigma
     return dgc_map
 
-def compute_global_dgc(gray, block_size=3):
+def compute_global_dgc(gray, block_size=8):
     """
     Compute the global DGC metric as the average of the local DGC values.
     """
@@ -83,17 +83,18 @@ def denoise_gray(gray):
 # Streamlit App Main Function
 # -------------------------------
 def main():
-    st.title("DGC Metric with Grayscale Denoising Reference")
+    st.title("DGC Metric with Grayscale Denoising Reference (8x8 Blocks)")
     st.write("""
-        This app computes the local Directional Gradient Consistency (DGC) metric on 3×3 patches for a user-uploaded image 
+        This app computes the local Directional Gradient Consistency (DGC) metric on 8×8 patches for a user-uploaded image 
         and a denoised version of that image using grayscale denoising.
         
-        Both the original and denoised images are processed in grayscale for DGC computation.
+        Both images are converted to grayscale and processed for edge gradients.
+        The global DGC is computed as the average of the local circular variance (computed on 8×8 patches).
         The app displays:
           - Global DGC for the test image,
           - Global DGC for the denoised image,
           - The absolute difference between these global DGC values,
-          - And a heatmap of the local DGC differences (per 3×3 patch).
+          - And a heatmap of the local DGC differences (per 8×8 patch).
     """)
     
     uploaded_file = st.file_uploader("Upload an image (jpg, jpeg, png)", type=["jpg", "jpeg", "png"])
@@ -115,12 +116,12 @@ def main():
         gray_denoised = denoise_gray(gray_test)
         st.image(gray_denoised, caption="Denoised Grayscale Image", use_container_width=True)
         
-        # Hard-coded block size for local DGC computation (3x3 patches)
-        block_size = 3
+        # Hard-coded block size for local DGC computation (8x8 patches)
+        block_size = 8
         
-        # Compute global DGC for the test (uploaded) grayscale image
+        # Compute global DGC for the test image
         test_global_dgc = compute_global_dgc(gray_test, block_size)
-        # Compute global DGC for the denoised grayscale image
+        # Compute global DGC for the denoised image
         denoised_global_dgc = compute_global_dgc(gray_denoised, block_size)
         
         # Compute the absolute difference between the two global DGC metrics (direct method)
@@ -140,7 +141,7 @@ def main():
         # Plot the local DGC difference heatmap
         fig, ax = plt.subplots()
         cax = ax.imshow(diff_map, cmap='viridis', interpolation='nearest')
-        ax.set_title("Local DGC Difference (3x3 Patches)")
+        ax.set_title("Local DGC Difference (8x8 Patches)")
         fig.colorbar(cax)
         st.pyplot(fig)
 
