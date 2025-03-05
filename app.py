@@ -11,7 +11,7 @@ def compute_gradients(gray):
     """
     Compute gradients using the Sobel operator:
       - Gx and Gy are the horizontal and vertical gradients.
-      - Magnitude: M(x,y) = sqrt(Gx^2 + Gy^2) acts as an edge confidence measure.
+      - Magnitude: M(x,y) = sqrt(Gx^2 + Gy^2) acts as the edge confidence measure.
       - Orientation: theta(x,y) = arctan2(Gy, Gx), wrapped to [0, 2*pi).
     """
     Gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
@@ -30,8 +30,7 @@ def block_dgc(mag_block, ori_block):
     where:
       - resultant = sqrt((sum(M*cos(theta)))^2 + (sum(M*sin(theta)))^2)
       - total_weight = sum(M)
-    A low sigma indicates that edge orientations are consistent,
-    while a high sigma indicates high dispersion (potential distortion).
+    A low sigma indicates that edge orientations are consistent.
     """
     sum_cos = np.sum(mag_block * np.cos(ori_block))
     sum_sin = np.sum(mag_block * np.sin(ori_block))
@@ -87,14 +86,14 @@ def denoise_image(gray):
 def main():
     st.title("DGC Metric with Denoising Reference")
     st.write("""
-        This app computes the local Directional Gradient Consistency (DGC) metric on 3×3 patches for a user-uploaded image 
-        and a denoised version of that image. It then displays:
+        This app computes the local Directional Gradient Consistency (DGC) metric on 3×3 patches 
+        for both a user-uploaded image and a denoised version of that image.
         
+        It then displays:
         - The global DGC metric for the test (uploaded) image.
         - The global DGC metric for the denoised (cleaner) image.
-        - A heatmap showing the absolute difference in local DGC between the two images.
-        
-        A higher DGC value indicates greater disruption in edge orientation consistency, which may suggest image distortion.
+        - The absolute difference between the global DGC metrics.
+        - A heatmap of the absolute difference in local DGC values (per 3×3 patch).
     """)
     
     uploaded_file = st.file_uploader("Upload an image (jpg, jpeg, png)", type=["jpg", "jpeg", "png"])
@@ -108,14 +107,12 @@ def main():
             return
         
         st.image(img, caption="Uploaded Image", use_container_width=True)
-        
-        # Convert the image to grayscale for processing
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
         # Hard-coded block size for local DGC computation (3x3 patches)
         block_size = 3
         
-        # Compute global DGC for the test (uploaded) image
+        # Compute global DGC for the test image
         test_global_dgc = compute_global_dgc(gray, block_size)
         
         # Apply denoising to obtain a "cleaner" reference image
@@ -125,18 +122,21 @@ def main():
         # Compute global DGC for the denoised image
         denoised_global_dgc = compute_global_dgc(denoised, block_size)
         
+        # Compute absolute difference between the two global DGC metrics
+        global_diff_direct = abs(test_global_dgc - denoised_global_dgc)
+        
         # Compute local DGC maps for both images
         dgc_map_test = compute_dgc_map(gray, block_size)
         dgc_map_denoised = compute_dgc_map(denoised, block_size)
         
         # Compute the absolute difference map of local DGC values
         diff_map = np.abs(dgc_map_test - dgc_map_denoised)
-        global_diff = np.mean(diff_map)
+        global_diff_local = np.mean(diff_map)
         
-        # Display the global DGC values and their difference
         st.write(f"**Global DGC (Test Image):** {test_global_dgc:.4f}")
         st.write(f"**Global DGC (Denoised Image):** {denoised_global_dgc:.4f}")
-        st.write(f"**Global Difference in DGC:** {global_diff:.4f}")
+        st.write(f"**Absolute Global Difference (direct):** {global_diff_direct:.4f}")
+        st.write(f"**Global Average Difference (local diff mean):** {global_diff_local:.4f}")
         
         # Plot the local DGC difference heatmap
         fig, ax = plt.subplots()
