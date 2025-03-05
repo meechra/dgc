@@ -11,8 +11,8 @@ def compute_gradients(gray):
     """
     Compute gradients using the Sobel operator:
       - Gx and Gy are the horizontal and vertical gradients.
-      - Magnitude: M(x,y) = sqrt(Gx^2 + Gy^2) serves as the edge confidence measure.
-      - Orientation: theta(x,y) = arctan2(Gy, Gx), wrapped to [0, 2*pi).
+      - Magnitude: M(x,y) = sqrt(Gx^2 + Gy^2) acts as the edge confidence measure.
+      - Orientation: theta(x,y) = arctan2(Gy, Gx) wrapped to [0, 2*pi).
     """
     Gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     Gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
@@ -39,7 +39,7 @@ def block_dgc(mag_block, ori_block):
     sigma = 1 - (resultant / total_weight)
     return sigma
 
-def compute_dgc_map(gray, block_size=7):
+def compute_dgc_map(gray, block_size):
     """
     Divide the grayscale image into non-overlapping blocks of size block_size x block_size.
     For each block, compute the local DGC (circular variance of edge orientations).
@@ -61,7 +61,7 @@ def compute_dgc_map(gray, block_size=7):
             dgc_map[i, j] = sigma
     return dgc_map
 
-def compute_global_dgc(gray, block_size=7):
+def compute_global_dgc(gray, block_size):
     """
     Compute the global DGC metric as the average of the local DGC values.
     """
@@ -83,20 +83,22 @@ def denoise_gray(gray):
 # Streamlit App Main Function
 # -------------------------------
 def main():
-    st.title("DGC Metric with Grayscale Denoising Reference (7x7 Blocks)")
+    st.title("DGC Metric with Grayscale Denoising Reference")
     st.write("""
-        This app computes the local Directional Gradient Consistency (DGC) metric on 7×7 patches for a user-uploaded image 
-        and a denoised version of that image using grayscale denoising.
+        This app computes the local Directional Gradient Consistency (DGC) metric on patches for a user-uploaded image 
+        and its denoised version (using grayscale denoising). 
         
-        The images are converted to grayscale and processed for edge gradients.
-        The global DGC is computed as the average of the local circular variance values (computed on 7×7 patches).
-        The app displays:
+        The image is first converted to grayscale. Then, edge gradients are computed using the Sobel operator. 
+        The image is divided into non-overlapping patches of a tunable size (from 3×3 up to 8×8). 
+        For each patch, the weighted circular variance of edge orientations is calculated as the local DGC value.
+        
+        The global DGC is the average of these local values. Finally, the app displays:
           - Global DGC for the test image,
           - Global DGC for the denoised image,
           - The absolute difference between these global DGC values,
-          - And a heatmap of the local DGC differences (per 7×7 patch).
+          - And a heatmap of the local DGC differences.
     """)
-    
+
     uploaded_file = st.file_uploader("Upload an image (jpg, jpeg, png)", type=["jpg", "jpeg", "png"])
     
     if uploaded_file is not None:
@@ -116,8 +118,9 @@ def main():
         gray_denoised = denoise_gray(gray_test)
         st.image(gray_denoised, caption="Denoised Grayscale Image", use_container_width=True)
         
-        # Hard-coded block size for local DGC computation (7x7 patches)
-        block_size = 7
+        # Create a slider for block size selection (only allow discrete values: 3,4,5,6,7,8)
+        block_size = st.slider("Select Patch (Block) Size", min_value=3, max_value=8, value=5, step=1,
+                               help="The patch size for local DGC computation (patch will be block_size x block_size)")
         
         # Compute global DGC for the test image
         test_global_dgc = compute_global_dgc(gray_test, block_size)
@@ -141,7 +144,7 @@ def main():
         # Plot the local DGC difference heatmap
         fig, ax = plt.subplots()
         cax = ax.imshow(diff_map, cmap='viridis', interpolation='nearest')
-        ax.set_title("Local DGC Difference (7x7 Patches)")
+        ax.set_title(f"Local DGC Difference ({block_size}x{block_size} Patches)")
         fig.colorbar(cax)
         st.pyplot(fig)
 
