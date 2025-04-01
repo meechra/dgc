@@ -21,29 +21,33 @@ def compute_gradients(gray):
     return magnitude, orientation
 
 # -------------------------------
-# Step 2: Compute Block-Level DGC via Circular Variance
+# Step 2: Compute Block-Level DGC via Circular Variance with Regularization
 # -------------------------------
-def block_dgc(mag_block, ori_block):
+def block_dgc_with_regularization(mag_block, ori_block):
     """
-    Compute the circular variance (sigma) for a block.
+    Compute the circular variance (sigma) for a block with added regularization.
     sigma = 1 - (resultant / total_weight)
     where:
       - resultant = sqrt((sum(M*cos(theta)))^2 + (sum(M*sin(theta)))^2)
       - total_weight = sum(M)
     A low sigma indicates that edge orientations are consistent.
+    
+    The regularization term is based on the variance of orientations in the block.
     """
     sum_cos = np.sum(mag_block * np.cos(ori_block))
     sum_sin = np.sum(mag_block * np.sin(ori_block))
     total_weight = np.sum(mag_block) + 1e-8  # Avoid division by zero
     resultant = sqrt(sum_cos**2 + sum_sin**2)
     sigma = 1 - (resultant / total_weight)
-    return sigma
+    
+    # Regularization: Add penalty based on variance of orientation in the block
+    variance = np.var(ori_block)  # Variance of orientations within the block
+    regularized_sigma = sigma + 0.5 * variance  # Adjust the regularization strength here
+    return regularized_sigma
 
-def compute_dgc_map(gray, block_size):
+def compute_dgc_map_with_regularization(gray, block_size):
     """
-    Divide the grayscale image into non-overlapping blocks of size block_size x block_size.
-    For each block, compute the local DGC (circular variance of edge orientations).
-    Returns a 2D array (heatmap) of local DGC values.
+    Compute the local DGC map for the image with regularization applied.
     """
     magnitude, orientation = compute_gradients(gray)
     rows, cols = gray.shape
@@ -57,15 +61,15 @@ def compute_dgc_map(gray, block_size):
             c0, c1 = j * block_size, j * block_size + block_size
             mag_block = magnitude[r0:r1, c0:c1]
             ori_block = orientation[r0:r1, c0:c1]
-            sigma = block_dgc(mag_block, ori_block)
+            sigma = block_dgc_with_regularization(mag_block, ori_block)
             dgc_map[i, j] = sigma
     return dgc_map
 
-def compute_global_dgc(gray, block_size):
+def compute_global_dgc_with_regularization(gray, block_size):
     """
-    Compute the global DGC metric as the average of the local DGC values.
+    Compute the global DGC metric with regularization applied.
     """
-    dgc_map = compute_dgc_map(gray, block_size)
+    dgc_map = compute_dgc_map_with_regularization(gray, block_size)
     return np.mean(dgc_map)
 
 # -------------------------------
@@ -80,33 +84,25 @@ def denoise_gray(gray):
     return denoised
 
 # -------------------------------
-# Step 4: Scale the Difference
-# -------------------------------
-def scale_diff(raw_diff, scale_factor=10.0):
-    """
-    Scale the raw difference between global DGC scores by a constant scale factor.
-    This amplification makes subtle differences more pronounced.
-    """
-    return raw_diff * scale_factor
-
-# -------------------------------
 # Streamlit App Main Function
 # -------------------------------
 def main():
-    st.title("DGC Metric with Grayscale Denoising & Scaled Difference")
+    st.title("DGC Metric with Grayscale Denoising Reference and Regularization")
     st.write("""
-        This app computes the global Directional Gradient Consistency (DGC) metric on patches for a user-uploaded image 
-        and its denoised version (using grayscale denoising). The image is converted to grayscale and divided into 
-        non-overlapping patches (patch size tunable via a slider, from 3×3 up to 8×8). The global DGC is the average 
-        of the local DGC (circular variance of edge orientations) over all patches.
+        This app computes the local Directional Gradient Consistency (DGC) metric on patches for a user-uploaded image 
+        and its denoised version (using grayscale denoising). 
         
-        The raw difference between the global DGC scores (Test Image minus Denoised Image) is then scaled by a 
-        constant factor to make the difference more pronounced.
+        The image is first converted to grayscale. Then, edge gradients are computed using the Sobel operator. 
+        The image is divided into non-overlapping patches of a tunable size (from 3×3 up to 8×8). 
+        For each patch, the weighted circular variance of edge orientations is calculated as the local DGC value.
         
-        A cleaner image should have a lower global DGC and hence a lower (scaled) difference, while an image 
-        with steganographic interference should have a higher global DGC and a larger (scaled) difference.
+        The global DGC is the average of these local values. Finally, the app displays:
+          - Global DGC for the test image,
+          - Global DGC for the denoised image,
+          - The absolute difference between these global DGC values,
+          - And a heatmap of the local DGC differences.
     """)
-    
+
     uploaded_file = st.file_uploader("Upload an image (jpg, jpeg, png)", type=["jpg", "jpeg", "png"])
     
     if uploaded_file is not None:
@@ -119,38 +115,35 @@ def main():
         
         st.image(img_color, caption="Uploaded Image", use_container_width=True)
         
-        # Convert the image to grayscale for processing
+        # Convert the color image to grayscale for processing
         gray_test = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
         
         # Apply grayscale denoising
         gray_denoised = denoise_gray(gray_test)
         st.image(gray_denoised, caption="Denoised Grayscale Image", use_container_width=True)
         
-        # Create a slider for patch (block) size selection (from 3x3 to 8x8)
+        # Create a slider for block size selection (only allow discrete values: 3,4,5,6,7,8)
         block_size = st.slider("Select Patch (Block) Size", min_value=3, max_value=8, value=5, step=1,
-                               help="Local DGC will be computed on non-overlapping patches of size block_size x block_size")
+                               help="The patch size for local DGC computation (patch will be block_size x block_size)")
         
-        # Compute global DGC scores for the test and denoised images
-        test_global_dgc = compute_global_dgc(gray_test, block_size)
-        denoised_global_dgc = compute_global_dgc(gray_denoised, block_size)
+        # Compute global DGC for the test image with regularization
+        test_global_dgc = compute_global_dgc_with_regularization(gray_test, block_size)
+        # Compute global DGC for the denoised image with regularization
+        denoised_global_dgc = compute_global_dgc_with_regularization(gray_denoised, block_size)
         
-        # Compute the raw difference between the two global DGC scores
-        raw_diff = test_global_dgc - denoised_global_dgc
+        # Compute the absolute difference between the two global DGC metrics (direct method)
+        global_diff_direct = abs(test_global_dgc - denoised_global_dgc)
         
-        # Scale the raw difference to make it more pronounced
-        scaled_diff = scale_diff(raw_diff)
-        
-        # Also compute local DGC maps for both images and then the absolute difference map
-        dgc_map_test = compute_dgc_map(gray_test, block_size)
-        dgc_map_denoised = compute_dgc_map(gray_denoised, block_size)
+        # Compute local DGC maps for both images and then the absolute difference map
+        dgc_map_test = compute_dgc_map_with_regularization(gray_test, block_size)
+        dgc_map_denoised = compute_dgc_map_with_regularization(gray_denoised, block_size)
         diff_map = np.abs(dgc_map_test - dgc_map_denoised)
         global_diff_local = np.mean(diff_map)
         
         st.write(f"**Global DGC (Test Image):** {test_global_dgc:.4f}")
         st.write(f"**Global DGC (Denoised Image):** {denoised_global_dgc:.4f}")
-        st.write(f"**Raw Global Difference (Test - Denoised):** {raw_diff:.4f}")
-        st.write(f"**Scaled Global Difference:** {scaled_diff:.4f}")
-        st.write(f"**Global Average Local Difference (patch mean):** {global_diff_local:.4f}")
+        st.write(f"**Global Absolute Difference (direct):** {global_diff_direct:.4f}")
+        st.write(f"**Global Average Difference (local diff mean):** {global_diff_local:.4f}")
         
         # Plot the local DGC difference heatmap
         fig, ax = plt.subplots()
