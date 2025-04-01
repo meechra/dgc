@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-from math import sqrt, pi
+from math import sqrt, pi, exp
 import matplotlib.pyplot as plt
 
 # -------------------------------
@@ -11,7 +11,7 @@ def compute_gradients(gray):
     """
     Compute gradients using the Sobel operator:
       - Gx and Gy are the horizontal and vertical gradients.
-      - Magnitude: M(x,y) = sqrt(Gx^2 + Gy^2) acts as the edge confidence measure.
+      - Magnitude: M(x,y) = sqrt(Gx^2 + Gy^2) serves as the edge confidence measure.
       - Orientation: theta(x,y) = arctan2(Gy, Gx) wrapped to [0, 2*pi).
     """
     Gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
@@ -80,7 +80,7 @@ def denoise_gray(gray):
     return denoised
 
 # -------------------------------
-# Step 4: Linear Normalization of the Difference
+# Step 4: Linear Normalization of the Difference (Without Clamping)
 # -------------------------------
 def normalize_diff(raw_diff, d_min=-0.1611, d_max=0.0575):
     """
@@ -89,12 +89,14 @@ def normalize_diff(raw_diff, d_min=-0.1611, d_max=0.0575):
     
         normalized = 1 - ((raw_diff - d_min) / (d_max - d_min))
     
-    This mapping ensures that a raw difference equal to d_min maps to 1 (stego)
-    and a raw difference equal to d_max maps to 0 (clean).
+    This maps:
+      - A raw difference equal to d_min (-0.1611) to 1,
+      - A raw difference equal to d_max (0.0575) to 0.
+    
+    Unlike hard clamping, we return the continuous value so that the intensity of interference is preserved.
     """
     normalized = 1.0 - ((raw_diff - d_min) / (d_max - d_min))
-    # Clamp to [0,1]
-    return max(0.0, min(1.0, normalized))
+    return normalized
 
 # -------------------------------
 # Streamlit App Main Function
@@ -103,15 +105,13 @@ def main():
     st.title("DGC Metric with Grayscale Denoising & Linear Difference Normalization")
     st.write("""
         This app computes the global Directional Gradient Consistency (DGC) metric on patches for a user-uploaded image 
-        and its denoised version (using grayscale denoising). 
+        and its denoised version (using grayscale denoising). The image is processed in grayscale and divided into 
+        non-overlapping patches (the patch size is tunable via a slider, from 3×3 up to 8×8). The global DGC is 
+        the average of the local DGC (circular variance of edge orientations) over all patches.
         
-        The image is converted to grayscale and processed for edge gradients. It is divided into non-overlapping patches 
-        (the patch size is tunable via a slider, from 3×3 up to 8×8). The global DGC metric is computed as the average 
-        of the local DGC (circular variance of edge orientations) over all patches.
-        
-        The app then computes the raw difference between the global DGC of the test image and its denoised version, 
-        and applies a linear normalization to stretch the difference to the [0,1] range. In this normalized scale, 
-        a clean image should have a value closer to 0 while a stego-interfered image should have a value closer to 1.
+        The raw difference between the global DGC scores of the test image and its denoised version is then normalized 
+        using linear min-max scaling (without hard clamping) to the range [0,1]. In this normalized scale, a clean image 
+        should have a value closer to 0, while a stego-interfered image should have a value closer to 1.
     """)
     
     uploaded_file = st.file_uploader("Upload an image (jpg, jpeg, png)", type=["jpg", "jpeg", "png"])
@@ -144,7 +144,7 @@ def main():
         # Compute the raw difference between the two global DGC scores
         raw_diff = test_global_dgc - denoised_global_dgc
         
-        # Normalize the difference using linear min-max scaling
+        # Normalize the difference using linear min-max scaling (without hard clamping)
         norm_diff = normalize_diff(raw_diff)
         
         # Also compute local DGC maps for both images and then the absolute difference map
