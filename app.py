@@ -28,28 +28,25 @@ def block_dgc(mag_block, ori_block):
     sigma = 1 - (resultant / total_weight)
     return sigma ** 1.5  # Non-linear scaling
 
-def compute_local_dgc(gray, block_size=7):
+def compute_global_dgc(gray, block_size=7):
     """
-    Compute the local DGC score for each block and return a 2D array of scores.
-    Also returns the global DGC score (mean of all local scores).
+    Compute the global DGC score for a grayscale image using blocks of size block_size x block_size.
     """
     magnitude, orientation = compute_gradients(gray)
     rows, cols = gray.shape
     num_blocks_row = rows // block_size
     num_blocks_col = cols // block_size
-    
-    local_scores = np.zeros((num_blocks_row, num_blocks_col))
-    
+
+    dgc_values = []
     for i in range(num_blocks_row):
         for j in range(num_blocks_col):
             r0, r1 = i * block_size, (i + 1) * block_size
             c0, c1 = j * block_size, (j + 1) * block_size
             mag_block = magnitude[r0:r1, c0:c1]
             ori_block = orientation[r0:r1, c0:c1]
-            local_scores[i, j] = block_dgc(mag_block, ori_block)
+            dgc_values.append(block_dgc(mag_block, ori_block))
     
-    global_score = np.mean(local_scores)
-    return local_scores, global_score
+    return np.mean(dgc_values)
 
 def normalize_difference(diff, min_diff=-0.002356, max_diff=0.039568):
     """Normalize the difference to [0,1] range."""
@@ -61,26 +58,40 @@ def read_image(uploaded_file):
     image = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
     return image
 
-def plot_heatmap(data, title="Local DGC Heatmap"):
-    """Plot a heatmap of the local DGC scores using matplotlib."""
-    fig, ax = plt.subplots()
-    heatmap = ax.imshow(data, cmap='viridis')
-    ax.set_title(title)
-    plt.colorbar(heatmap, ax=ax)
+def plot_interference_line(normalized_diff):
+    """
+    Plot a number line from 0 to 1 with markers indicating interference.
+    The left end is labeled "0 interference" and the right end "max interference".
+    """
+    fig, ax = plt.subplots(figsize=(8, 2))
+    # Plot the line
+    ax.hlines(0, 0, 1, colors='gray', linewidth=4)
+    # Plot the marker for the normalized difference
+    ax.plot(normalized_diff, 0, marker='o', markersize=12, color='red')
+    # Set labels for the extremes
+    ax.text(0, 0.1, '0 interference', ha='left', va='center', fontsize=10, color='black')
+    ax.text(1, 0.1, 'max interference', ha='right', va='center', fontsize=10, color='black')
+    # Remove y-axis and spines for cleaner look
+    ax.get_yaxis().set_visible(False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    # Set limits and title
+    ax.set_xlim(-0.05, 1.05)
+    ax.set_title("Stego Interference Indicator")
     return fig
 
 # --- Streamlit App ---
 
-st.title("DGC Score Calculator with Local Heatmaps")
+st.title("DGC Score Calculator with Interference Indicator")
 st.write("""
 This app calculates the Directional Gradient Consistency (DGC) scores for a pair of images:
 - A **Clean** image
 - A **Stego** (steganographically modified) image
 
-The computation divides each image into 7×7 blocks and computes:
-- A **Local DGC** for each block (displayed as a heatmap)
-- A **Global DGC** score as the average over all blocks
-
+The computation divides each image into 7×7 blocks and computes a global DGC score as the average of local scores.
+The difference between the stego and clean scores is then normalized to a [0,1] range, which is visualized on a number line:
+- **0 interference** on the left
+- **max interference** on the right
 Upload both images below to compute and compare their DGC scores.
 """)
 
@@ -103,9 +114,9 @@ if clean_file is not None and stego_file is not None:
         clean_img_denoised = denoise_gray(clean_img)
         stego_img_denoised = denoise_gray(stego_img)
         
-        # Compute local and global DGC scores using 7x7 blocks
-        clean_local, clean_global = compute_local_dgc(clean_img_denoised, block_size=7)
-        stego_local, stego_global = compute_local_dgc(stego_img_denoised, block_size=7)
+        # Compute global DGC scores using 7x7 blocks
+        clean_global = compute_global_dgc(clean_img_denoised, block_size=7)
+        stego_global = compute_global_dgc(stego_img_denoised, block_size=7)
         
         # Compute the difference and normalized difference
         diff = stego_global - clean_global
@@ -118,10 +129,6 @@ if clean_file is not None and stego_file is not None:
         st.write(f"**Raw Difference (Stego - Clean):** {diff:.6f}")
         st.write(f"**Normalized Difference:** {normalized_diff:.6f}")
         
-        # Plot local DGC heatmaps
-        st.write("### Local DGC Heatmaps:")
-        clean_fig = plot_heatmap(clean_local, title="Clean Image Local DGC")
-        stego_fig = plot_heatmap(stego_local, title="Stego Image Local DGC")
-        
-        st.pyplot(clean_fig)
-        st.pyplot(stego_fig)
+        # Plot and display the interference number line
+        interference_fig = plot_interference_line(normalized_diff)
+        st.pyplot(interference_fig)
