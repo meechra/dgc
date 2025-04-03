@@ -27,7 +27,7 @@ def block_dgc(mag_block, ori_block):
     sigma = 1 - (resultant / total_weight)
     return sigma ** 1.5  # Non-linear scaling
 
-def compute_global_dgc(gray, block_size=5):
+def compute_global_dgc(gray, block_size=7):
     """
     Compute the global DGC score for a grayscale image using blocks of size block_size x block_size.
     """
@@ -98,7 +98,7 @@ This app calculates the Directional Gradient Consistency (DGC) scores for a pair
 - A **Clean** image
 - A **Stego** (steganographically modified) image
 
-Each image is divided into 5×5 blocks, and a global DGC score is computed as the average of the local block scores.
+Each image is divided into 7×7 blocks, and a global DGC score is computed as the average of the local block scores.
 The final metric is the normalized difference between the stego and clean scores,
 normalized to a [0,1] range using calibration values.
 The number line below shows the normalized difference metric, with:
@@ -125,9 +125,9 @@ if clean_file is not None and stego_file is not None:
         clean_img_denoised = denoise_gray(clean_img)
         stego_img_denoised = denoise_gray(stego_img)
         
-        # Compute the global DGC scores using 5x5 blocks.
-        clean_global = compute_global_dgc(clean_img_denoised, block_size=5)
-        stego_global = compute_global_dgc(stego_img_denoised, block_size=5)
+        # Compute the global DGC scores using 7x7 blocks.
+        clean_global = compute_global_dgc(clean_img_denoised, block_size=7)
+        stego_global = compute_global_dgc(stego_img_denoised, block_size=7)
         
         # Compute the difference (stego - clean) and normalize it.
         diff = stego_global - clean_global
