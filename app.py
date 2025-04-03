@@ -11,7 +11,7 @@ def denoise_gray(gray):
     return cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7, searchWindowSize=21)
 
 def compute_gradients(gray):
-    """Compute gradients using Sobel operator."""
+    """Compute gradients using the Sobel operator."""
     Gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     Gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
     magnitude = np.sqrt(Gx**2 + Gy**2)
@@ -50,66 +50,72 @@ def compute_global_dgc(gray, block_size=7):
 def normalize_score(score, min_score=0.0, max_score=1.0):
     """
     Normalize a score to [0,1] using calibration values.
-    Update min_score and max_score if you have different calibration values.
+    Adjust min_score and max_score if different calibration values are available.
     """
     return (score - min_score) / (max_score - min_score)
 
 def read_image(uploaded_file):
-    """Read an uploaded image and convert to grayscale."""
+    """Read an uploaded image and convert it to grayscale."""
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     image = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
     return image
 
 def plot_gap_line(norm_clean, norm_stego):
     """
-    Plot a horizontal number line from 0 to 100 with markers indicating:
-      - The normalized clean DGC score.
-      - The normalized stego DGC score.
-    The left end is labeled "0 interference" and the right end "max interference".
-    The scores are scaled by 100 to magnify differences (2 decimal points).
+    Plot a horizontal number line with dynamic range based on the two normalized scores.
+    Both scores are first magnified by 100. The x-axis limits are set to zoom in
+    around these two values (with an added margin), making small differences more visible.
     """
     # Multiply normalized values by 100 for visualization.
     vis_clean = norm_clean * 100
     vis_stego = norm_stego * 100
-    
+
+    # Determine dynamic range limits based on the two values.
+    score_min = min(vis_clean, vis_stego)
+    score_max = max(vis_clean, vis_stego)
+    margin = 1.0  # Margin to add on each side (adjust as needed)
+
+    # Create the figure and axis.
     fig, ax = plt.subplots(figsize=(8, 2))
     
     # Draw the horizontal baseline.
-    ax.hlines(0, 0, 100, colors='gray', linewidth=4)
+    ax.hlines(0, score_min - margin, score_max + margin, colors='gray', linewidth=4)
     
-    # Plot markers for normalized scores.
+    # Plot markers for the normalized scores.
     ax.plot(vis_clean, 0, marker='o', markersize=12, color='blue', label='Clean')
     ax.plot(vis_stego, 0, marker='o', markersize=12, color='red', label='Stego')
     
-    # Add text labels above the markers.
+    # Place text labels above the markers.
     ax.text(vis_clean, 0.1, f"Clean: {vis_clean:.2f}", ha='center', va='bottom', fontsize=10, color='blue')
     ax.text(vis_stego, 0.1, f"Stego: {vis_stego:.2f}", ha='center', va='bottom', fontsize=10, color='red')
     
-    # Label the extremes.
-    ax.text(0, -0.1, '0 interference', ha='left', va='top', fontsize=10, color='black')
-    ax.text(100, -0.1, 'max interference', ha='right', va='top', fontsize=10, color='black')
+    # Label the dynamic extremes.
+    ax.text(score_min - margin, -0.1, '0 interference', ha='left', va='top', fontsize=10, color='black')
+    ax.text(score_max + margin, -0.1, 'max interference', ha='right', va='top', fontsize=10, color='black')
     
-    # Clean up the plot.
+    # Clean up the plot: remove y-axis and extra spines.
     ax.get_yaxis().set_visible(False)
     for spine in ax.spines.values():
         spine.set_visible(False)
-    ax.set_xlim(-5, 105)
+    
+    # Set the dynamic x-limits.
+    ax.set_xlim(score_min - margin, score_max + margin)
     ax.set_ylim(-0.3, 0.3)
-    ax.set_title("Stego Interference Indicator (Normalized Scores)")
+    ax.set_title("Stego Interference Indicator (Dynamic Zoom)")
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.25), ncol=2)
     return fig
 
 # --- Streamlit App ---
 
-st.title("DGC Score Calculator with Magnified Gap Visualization")
+st.title("DGC Score Calculator with Dynamic Gap Visualization")
 st.write("""
 This app calculates the Directional Gradient Consistency (DGC) scores for a pair of images:
 - A **Clean** image
 - A **Stego** (steganographically modified) image
 
 Each image is divided into 7×7 blocks, and a global DGC score is computed as the average of the local block scores.
-We then normalize these scores (using the calibration range of [0,1]) and magnify them by multiplying by 100,
-so that the output represents a normalized interference level with a finer scale.
+We then normalize these scores (using the calibration range of [0,1]) and magnify them by multiplying by 100.
+A dynamic number line zooms in on the two scores, so small differences become clearly visible.
 Only the normalized scores (in the 0-100 range) are displayed.
 """)
 
@@ -145,6 +151,6 @@ if clean_file is not None and stego_file is not None:
         st.write(f"**Normalized Clean DGC Score:** {(norm_clean*100):.2f}")
         st.write(f"**Normalized Stego DGC Score:** {(norm_stego*100):.2f}")
         
-        # Plot and display the magnified number line visualization.
+        # Plot and display the dynamic number line visualization.
         gap_fig = plot_gap_line(norm_clean, norm_stego)
         st.pyplot(gap_fig)
