@@ -47,12 +47,12 @@ def compute_global_dgc(gray, block_size=7):
     
     return np.mean(dgc_values)
 
-def normalize_score(score, min_score=0.0, max_score=1.0):
+def normalize_difference(diff, min_diff=-0.002356, max_diff=0.039568):
     """
-    Normalize a score to [0,1] using calibration values.
-    Adjust min_score and max_score if different calibration values are available.
+    Normalize the difference to a [0,1] range using calibration values.
+    Here, diff = stego_global - clean_global.
     """
-    return (score - min_score) / (max_score - min_score)
+    return (diff - min_diff) / (max_diff - min_diff)
 
 def read_image(uploaded_file):
     """Read an uploaded image and convert it to grayscale."""
@@ -60,63 +60,50 @@ def read_image(uploaded_file):
     image = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
     return image
 
-def plot_gap_line(norm_clean, norm_stego):
+def plot_metric_line(norm_diff):
     """
-    Plot a horizontal number line with dynamic range based on the two normalized scores.
-    Both scores are first magnified by 100. The x-axis limits are set to zoom in
-    around these two values (with an added margin), making small differences more visible.
+    Plot a horizontal number line from 0 to 1 with a marker at the normalized difference.
+    Label the left end as "no interference" and the right end as "max interference."
     """
-    # Multiply normalized values by 100 for visualization.
-    vis_clean = norm_clean * 100
-    vis_stego = norm_stego * 100
-
-    # Determine dynamic range limits based on the two values.
-    score_min = min(vis_clean, vis_stego)
-    score_max = max(vis_clean, vis_stego)
-    margin = 1.0  # Margin to add on each side (adjust as needed)
-
-    # Create the figure and axis.
     fig, ax = plt.subplots(figsize=(8, 2))
     
-    # Draw the horizontal baseline.
-    ax.hlines(0, score_min - margin, score_max + margin, colors='gray', linewidth=4)
+    # Draw a horizontal baseline across the full [0,1] range.
+    ax.hlines(0, 0, 1, colors='gray', linewidth=4)
     
-    # Plot markers for the normalized scores.
-    ax.plot(vis_clean, 0, marker='o', markersize=12, color='blue', label='Clean')
-    ax.plot(vis_stego, 0, marker='o', markersize=12, color='red', label='Stego')
+    # Plot the marker for the normalized difference.
+    ax.plot(norm_diff, 0, marker='o', markersize=12, color='red')
     
-    # Place text labels above the markers.
-    ax.text(vis_clean, 0.1, f"Clean: {vis_clean:.2f}", ha='center', va='bottom', fontsize=10, color='blue')
-    ax.text(vis_stego, 0.1, f"Stego: {vis_stego:.2f}", ha='center', va='bottom', fontsize=10, color='red')
+    # Add text label above the marker.
+    ax.text(norm_diff, 0.1, f"{norm_diff:.3f}", ha='center', va='bottom', fontsize=10, color='red')
     
-    # Label the dynamic extremes.
-    ax.text(score_min - margin, -0.1, '0 interference', ha='left', va='top', fontsize=10, color='black')
-    ax.text(score_max + margin, -0.1, 'max interference', ha='right', va='top', fontsize=10, color='black')
+    # Label the extremities.
+    ax.text(0, -0.1, 'no interference', ha='left', va='top', fontsize=10, color='black')
+    ax.text(1, -0.1, 'max interference', ha='right', va='top', fontsize=10, color='black')
     
-    # Clean up the plot: remove y-axis and extra spines.
+    # Clean up the plot.
     ax.get_yaxis().set_visible(False)
     for spine in ax.spines.values():
         spine.set_visible(False)
     
-    # Set the dynamic x-limits.
-    ax.set_xlim(score_min - margin, score_max + margin)
+    ax.set_xlim(-0.05, 1.05)
     ax.set_ylim(-0.3, 0.3)
-    ax.set_title("Stego Interference Indicator (Dynamic Zoom)")
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.25), ncol=2)
+    ax.set_title("Normalized Difference Metric")
     return fig
 
 # --- Streamlit App ---
 
-st.title("DGC Score Calculator with Dynamic Gap Visualization")
+st.title("DGC Score Calculator with Normalized Difference Metric")
 st.write("""
 This app calculates the Directional Gradient Consistency (DGC) scores for a pair of images:
 - A **Clean** image
 - A **Stego** (steganographically modified) image
 
 Each image is divided into 7×7 blocks, and a global DGC score is computed as the average of the local block scores.
-We then normalize these scores (using the calibration range of [0,1]) and magnify them by multiplying by 100.
-A dynamic number line zooms in on the two scores, so small differences become clearly visible.
-Only the normalized scores (in the 0-100 range) are displayed.
+The final metric is the normalized difference between the stego and clean scores,
+normalized to a [0,1] range using calibration values.
+The number line below shows the normalized difference metric, with:
+- **0** labeled as "no interference"
+- **1** labeled as "max interference"
 """)
 
 # File upload widgets for the clean and stego images.
@@ -142,15 +129,14 @@ if clean_file is not None and stego_file is not None:
         clean_global = compute_global_dgc(clean_img_denoised, block_size=7)
         stego_global = compute_global_dgc(stego_img_denoised, block_size=7)
         
-        # Normalize the scores.
-        norm_clean = normalize_score(clean_global, min_score=0.0, max_score=1.0)
-        norm_stego = normalize_score(stego_global, min_score=0.0, max_score=1.0)
+        # Compute the difference (stego - clean) and normalize it.
+        diff = stego_global - clean_global
+        norm_diff = normalize_difference(diff, min_diff=-0.002356, max_diff=0.039568)
         
-        # Display only the normalized scores (magnified).
-        st.write("### Normalized Global DGC Scores (Magnified):")
-        st.write(f"**Normalized Clean DGC Score:** {(norm_clean*100):.2f}")
-        st.write(f"**Normalized Stego DGC Score:** {(norm_stego*100):.2f}")
+        # Display only the normalized difference metric.
+        st.write("### Normalized Difference Metric:")
+        st.write(f"**Normalized Difference:** {norm_diff:.3f}")
         
-        # Plot and display the dynamic number line visualization.
-        gap_fig = plot_gap_line(norm_clean, norm_stego)
-        st.pyplot(gap_fig)
+        # Plot and display the number line visualization.
+        metric_fig = plot_metric_line(norm_diff)
+        st.pyplot(metric_fig)
