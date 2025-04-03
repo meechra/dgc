@@ -77,8 +77,8 @@ def plot_metric_line(norm_diff):
     ax.text(norm_diff, 0.1, f"{norm_diff:.3f}", ha='center', va='bottom', fontsize=10, color='red')
     
     # Label the extremities.
-    ax.text(0, -0.1, 'min stego', ha='left', va='top', fontsize=10, color='black')
-    ax.text(1, -0.1, 'max stego', ha='right', va='top', fontsize=10, color='black')
+    ax.text(0, -0.1, 'min diff', ha='left', va='top', fontsize=10, color='black')
+    ax.text(1, -0.1, 'max diff', ha='right', va='top', fontsize=10, color='black')
     
     # Clean up the plot.
     ax.get_yaxis().set_visible(False)
