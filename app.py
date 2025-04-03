@@ -101,9 +101,6 @@ This app calculates the Directional Gradient Consistency (DGC) scores for a pair
 Each image is divided into 7×7 blocks, and a global DGC score is computed as the average of the local block scores.
 The final metric is the normalized difference between the stego and clean scores,
 normalized to a [0,1] range using calibration values.
-The number line below shows the normalized difference metric, with:
-- **0** labeled as "no interference"
-- **1** labeled as "max interference"
 """)
 
 # File upload widgets for the clean and stego images.
