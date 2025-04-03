@@ -62,33 +62,38 @@ def read_image(uploaded_file):
 
 def plot_gap_line(norm_clean, norm_stego):
     """
-    Plot a horizontal number line from 0 to 1 with markers indicating:
+    Plot a horizontal number line from 0 to 100 with markers indicating:
       - The normalized clean DGC score.
       - The normalized stego DGC score.
     The left end is labeled "0 interference" and the right end "max interference".
+    The scores are scaled by 100 to magnify differences (2 decimal points).
     """
+    # Multiply normalized values by 100 for visualization.
+    vis_clean = norm_clean * 100
+    vis_stego = norm_stego * 100
+    
     fig, ax = plt.subplots(figsize=(8, 2))
     
     # Draw the horizontal baseline.
-    ax.hlines(0, 0, 1, colors='gray', linewidth=4)
+    ax.hlines(0, 0, 100, colors='gray', linewidth=4)
     
     # Plot markers for normalized scores.
-    ax.plot(norm_clean, 0, marker='o', markersize=12, color='blue', label='Clean')
-    ax.plot(norm_stego, 0, marker='o', markersize=12, color='red', label='Stego')
+    ax.plot(vis_clean, 0, marker='o', markersize=12, color='blue', label='Clean')
+    ax.plot(vis_stego, 0, marker='o', markersize=12, color='red', label='Stego')
     
     # Add text labels above the markers.
-    ax.text(norm_clean, 0.1, f"Clean: {norm_clean:.3f}", ha='center', va='bottom', fontsize=10, color='blue')
-    ax.text(norm_stego, 0.1, f"Stego: {norm_stego:.3f}", ha='center', va='bottom', fontsize=10, color='red')
+    ax.text(vis_clean, 0.1, f"Clean: {vis_clean:.2f}", ha='center', va='bottom', fontsize=10, color='blue')
+    ax.text(vis_stego, 0.1, f"Stego: {vis_stego:.2f}", ha='center', va='bottom', fontsize=10, color='red')
     
     # Label the extremes.
     ax.text(0, -0.1, '0 interference', ha='left', va='top', fontsize=10, color='black')
-    ax.text(1, -0.1, 'max interference', ha='right', va='top', fontsize=10, color='black')
+    ax.text(100, -0.1, 'max interference', ha='right', va='top', fontsize=10, color='black')
     
     # Clean up the plot.
     ax.get_yaxis().set_visible(False)
     for spine in ax.spines.values():
         spine.set_visible(False)
-    ax.set_xlim(-0.05, 1.05)
+    ax.set_xlim(-5, 105)
     ax.set_ylim(-0.3, 0.3)
     ax.set_title("Stego Interference Indicator (Normalized Scores)")
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.25), ncol=2)
@@ -96,19 +101,16 @@ def plot_gap_line(norm_clean, norm_stego):
 
 # --- Streamlit App ---
 
-st.title("DGC Score Calculator with Normalized Gap Visualization")
+st.title("DGC Score Calculator with Magnified Gap Visualization")
 st.write("""
 This app calculates the Directional Gradient Consistency (DGC) scores for a pair of images:
 - A **Clean** image
 - A **Stego** (steganographically modified) image
 
 Each image is divided into 7×7 blocks, and a global DGC score is computed as the average of the local block scores.
-We then normalize these scores (using the calibration range of [0,1]) so that the output represents
-a normalized interference level. The number line below shows the normalized scores:
-- **0 interference** on the left
-- **max interference** on the right
-
-Only the normalized scores are displayed.
+We then normalize these scores (using the calibration range of [0,1]) and magnify them by multiplying by 100,
+so that the output represents a normalized interference level with a finer scale.
+Only the normalized scores (in the 0-100 range) are displayed.
 """)
 
 # File upload widgets for the clean and stego images.
@@ -138,11 +140,11 @@ if clean_file is not None and stego_file is not None:
         norm_clean = normalize_score(clean_global, min_score=0.0, max_score=1.0)
         norm_stego = normalize_score(stego_global, min_score=0.0, max_score=1.0)
         
-        # Display only the normalized scores.
-        st.write("### Normalized Global DGC Scores:")
-        st.write(f"**Normalized Clean DGC Score:** {norm_clean:.6f}")
-        st.write(f"**Normalized Stego DGC Score:** {norm_stego:.6f}")
+        # Display only the normalized scores (magnified).
+        st.write("### Normalized Global DGC Scores (Magnified):")
+        st.write(f"**Normalized Clean DGC Score:** {(norm_clean*100):.2f}")
+        st.write(f"**Normalized Stego DGC Score:** {(norm_stego*100):.2f}")
         
-        # Plot and display the number line visualization.
+        # Plot and display the magnified number line visualization.
         gap_fig = plot_gap_line(norm_clean, norm_stego)
         st.pyplot(gap_fig)
