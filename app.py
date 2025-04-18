@@ -6,7 +6,7 @@ from math import sqrt, pi
 import matplotlib.pyplot as plt  # ← ensure this is here
 
 st.set_page_config(layout="wide")
-st.title("Stego‑Interference Detector")
+st.title("PVD Stego‑Interference Detector with DGC Metric")
 
 # ─── Fixed Settings ────────────────────────────────────────────────────
 P_EXPONENT     = 2.5        # block_dgc exponent
