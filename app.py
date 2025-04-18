@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import pywt
 from math import sqrt, pi
+import matplotlib.pyplot as plt  # ← ensure this is here
 
 st.set_page_config(layout="wide")
 st.title("Stego‑Interference Detector")
@@ -88,6 +89,7 @@ st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
 # Compute and show difference map
 diff_map = cv2.absdiff(detail, denoised)
 st.subheader("Detail − Denoised Difference")
+
 fig, ax = plt.subplots(figsize=(5,5))
 ax.imshow(diff_map, cmap='inferno')
 ax.axis('off')
