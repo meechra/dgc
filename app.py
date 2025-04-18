@@ -13,15 +13,17 @@ P_EXPONENT     = 2.5        # block_dgc exponent
 WEIGHT_EXP     = 2          # block weight = sum(mag**WEIGHT_EXP)
 GRAD_THRESHOLD = 1.0        # ignore blocks below this edge‑energy
 
-# ─── Hard‑coded “tunable” parameters ──────────────────────────────────
+# ─── Hard‑coded parameters ─────────────────────────────────────────────
 SCALES    = [7]             # Multi‑scale block sizes
 STRIDE_MS = 7               # Multi‑scale stride
 BINS      = 4               # Orientation histogram bins
 STRIDE_HD = 3               # Hist‑div stride
 ALPHA     = 0.90            # Fusion weight
-GAMMA     = 2.0             # Exponent to stretch the percentage
 
-# ─── 1. Sobel gradients → magnitude & orientation ─────────────────────
+# ─── Pivot for piecewise percentage stretch ────────────────────────────
+PIVOT_T   = 0.55            # fused score at which likelihood = 50%
+
+# ─── 1. Sobel gradients → magnitude & orientation ───────────────────────
 def compute_gradients(gray):
     Gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     Gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
@@ -103,8 +105,10 @@ def hist_divergence(detail_img, denoised_img):
             h1, _ = np.histogram(ob1.ravel(), bins=BINS, range=(0,2*pi), weights=mb1.ravel())
             h2, _ = np.histogram(ob2.ravel(), bins=BINS, range=(0,2*pi), weights=mb2.ravel())
 
-            p = h1/(h1.sum()+eps); q = h2/(h2.sum()+eps)
-            p += eps; q += eps; p /= p.sum(); q /= q.sum()
+            p = h1 / (h1.sum() + eps)
+            q = h2 / (h2.sum() + eps)
+            p += eps; q += eps
+            p /= p.sum(); q /= q.sum()
 
             kl_vals.append(entropy(p, q))
 
@@ -125,6 +129,7 @@ if uploaded:
         st.image(detail_img,   caption="Wavelet Detail",  width=250)
         st.image(denoised_img, caption="Denoised Detail", width=250)
 
+        # compute scores
         ms_score = multiscale_dgc(detail_img)
         hd_score = hist_divergence(detail_img, denoised_img)
         fused    = ALPHA * ms_score + (1 - ALPHA) * hd_score
@@ -133,5 +138,10 @@ if uploaded:
         st.markdown(f"**Hist‑Divergence:** {hd_score:.4f}")
         st.markdown(f"**Fused Score (α={ALPHA:.2f}):** {fused:.4f}")
 
-        likelihood = (fused ** GAMMA) * 100
+        # piecewise stretch to emphasize gap
+        if fused <= PIVOT_T:
+            likelihood = 50.0 * (fused / PIVOT_T)
+        else:
+            likelihood = 50.0 + 50.0 * ((fused - PIVOT_T) / (1.0 - PIVOT_T))
+
         st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
