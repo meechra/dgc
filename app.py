@@ -56,72 +56,75 @@ def get_wavelet_denoised_image(detail_img):
 
 # ─── App Body ─────────────────────────────────────────────────────────
 uploaded = st.file_uploader("Upload a Grayscale Image", type=['png','jpg','jpeg'])
+if not uploaded:
+    st.stop()
 
-if uploaded:
-    # Read images
-    data = np.frombuffer(uploaded.read(), np.uint8)
-    gray = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE)
-    if gray is None:
-        st.error("Invalid image.")
-        st.stop()
+data = np.frombuffer(uploaded.read(), np.uint8)
+gray = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE)
+if gray is None:
+    st.error("Invalid image.")
+    st.stop()
 
-    # Compute detail & denoised
-    detail   = get_wavelet_detail_image(gray)
-    denoised = get_wavelet_denoised_image(detail)
+# detail and denoised
+detail   = get_wavelet_detail_image(gray)
+denoised = get_wavelet_denoised_image(detail)
 
-    # Compute DGC scores
-    raw_score      = compute_weighted_dgc_score(detail)
-    denoised_score = compute_weighted_dgc_score(denoised)
-    fused          = raw_score - denoised_score
+# compute scores
+raw_score      = compute_weighted_dgc_score(detail)
+denoised_score = compute_weighted_dgc_score(denoised)
+fused          = raw_score - denoised_score
 
-    # Piecewise stretch to %age
-    if fused <= PIVOT_T:
-        likelihood = 50.0 * (fused / PIVOT_T)
-    else:
-        likelihood = 50.0 + 50.0 * ((fused - PIVOT_T) / (1.0 - PIVOT_T))
+# percentage mapping
+if fused <= PIVOT_T:
+    likelihood = 50.0 * (fused / PIVOT_T)
+else:
+    likelihood = 50.0 + 50.0 * ((fused - PIVOT_T) / (1.0 - PIVOT_T))
 
-    # Display core metrics
-    st.markdown(f"**Raw DGC Score:**      {raw_score:.4f}")
-    st.markdown(f"**Denoised DGC Score:** {denoised_score:.4f}")
-    st.markdown(f"**Difference:**        {fused:.4f}")
-    st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
+# display metrics
+st.markdown(f"**Raw DGC Score:**      {raw_score:.4f}")
+st.markdown(f"**Denoised DGC Score:** {denoised_score:.4f}")
+st.markdown(f"**Difference:**        {fused:.4f}")
+st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
 
-    # ─── ELI5 Explanation ───────────────────────────────────────────────
-    st.write("""
-    **ELI5:**  
-    1. We turn the picture into a bumpy terrain map of edges (“wavelet detail”).  
-    2. We smooth it (“denoise”) to wipe out secret bits.  
-    3. We measure how “wobbly” each patch is before vs. after: that’s the DGC score.  
-    4. The bigger the drop when we smooth, the more likely someone hid data there.  
-    5. We turn that drop into a percentage to tell you “how much” looks tampered.
-    """)
+# build visualizations
+mag, ori = compute_gradients(detail)
+H, W = detail.shape
 
-    # ─── 1) Block‑Level DGC Heatmap ──────────────────────────────────────
-    mag, ori = compute_gradients(detail)
-    H, W = detail.shape
-    heatmap = np.zeros_like(detail, dtype=float)
+# 1) Block‑Level DGC Heatmap
+heatmap = np.zeros_like(detail, dtype=float)
+for i in range(0, H - BLOCK_SIZE + 1, BLOCK_SIZE):
+    for j in range(0, W - BLOCK_SIZE + 1, BLOCK_SIZE):
+        mb = mag[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE]
+        ob = ori[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE]
+        heatmap[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE] = block_dgc(mb, ob)
 
-    # compute block DGC for each patch
-    for i in range(0, H - BLOCK_SIZE + 1, BLOCK_SIZE):
-        for j in range(0, W - BLOCK_SIZE + 1, BLOCK_SIZE):
-            mb = mag[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE]
-            ob = ori[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE]
-            sigma = block_dgc(mb, ob)
-            heatmap[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE] = sigma
+# 2) Detail − Denoised Difference Map
+diff_map = cv2.absdiff(detail, denoised)
 
-    # overlay heatmap on detail image
+# side‑by‑side columns
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Block‑Level DGC Heatmap")
     fig1, ax1 = plt.subplots(figsize=(4,4))
     ax1.imshow(detail, cmap='gray')
     hm = ax1.imshow(heatmap, cmap='jet', alpha=0.5, vmin=0, vmax=1)
-    ax1.set_title("Block‑Level DGC Heatmap")
     ax1.axis('off')
     fig1.colorbar(hm, ax=ax1, fraction=0.046, pad=0.04)
     st.pyplot(fig1)
 
-    # ─── 2) Raw vs. Denoised Difference Map ──────────────────────────────
-    diff_map = cv2.absdiff(detail, denoised)
+with col2:
+    st.subheader("Detail − Denoised Difference")
     fig2, ax2 = plt.subplots(figsize=(4,4))
     ax2.imshow(diff_map, cmap='inferno')
-    ax2.set_title("Abs(Difference) Detail − Denoised")
     ax2.axis('off')
     st.pyplot(fig2)
+
+# sharp explanations
+st.markdown("""
+- **Block‑Level DGC Heatmap:**  
+  Bright blocks mark areas where edge directions are unnaturally tossed around—strong evidence of tampering.
+
+- **Difference Map (Detail − Denoised):**  
+  Bright regions show where smoothing strips away the most high‑frequency noise—spots where hidden data was embedded.
+""")
