@@ -5,14 +5,16 @@ import pywt
 from math import sqrt, pi
 
 st.set_page_config(layout="wide")
-st.title("Stego‑Interference Detection with DGC Metric")
+st.title("Stego‑Interference Detector (Single‑Scale DGC)")
 
 # ─── Fixed Settings ────────────────────────────────────────────────────
 P_EXPONENT     = 2.5        # block_dgc exponent
 WEIGHT_EXP     = 2          # block weight = sum(mag**WEIGHT_EXP)
 GRAD_THRESHOLD = 1.0        # ignore low‑energy blocks
 BLOCK_SIZE     = 7          # single block size for DGC
-PIVOT_T        = 0.55       # fused score at which likelihood = 50%
+
+# ─── Pivot for piecewise percentage stretch ────────────────────────────
+PIVOT_T        = 0.01611    # recalibrated pivot (midpoint of clean vs. stego diffs)
 
 # ─── 1. Sobel gradients → magnitude & orientation ───────────────────────
 def compute_gradients(gray):
@@ -65,14 +67,14 @@ if uploaded:
     if gray is None:
         st.error("Invalid image.")
     else:
-        # Display original, detail, and denoised images
         st.image(gray, caption="Original", width=250)
-        detail = get_wavelet_detail_image(gray)
+
+        detail   = get_wavelet_detail_image(gray)
         denoised = get_wavelet_denoised_image(detail)
         st.image(detail,   caption="Wavelet Detail",  width=250)
         st.image(denoised, caption="Denoised Detail", width=250)
 
-        # Compute DGC on raw detail and denoised detail
+        # Compute DGC
         raw_score      = compute_weighted_dgc_score(detail)
         denoised_score = compute_weighted_dgc_score(denoised)
 
@@ -83,10 +85,12 @@ if uploaded:
         fused = raw_score - denoised_score
         st.markdown(f"**Difference:**        {fused:.4f}")
 
-        # Piecewise stretch mapping to percentage
+        # ─── After computing `fused` ─────────────────────────────────────
         if fused <= PIVOT_T:
+            # scales 0…T → 0…50%
             likelihood = 50.0 * (fused / PIVOT_T)
         else:
+            # scales T…1 → 50…100%
             likelihood = 50.0 + 50.0 * ((fused - PIVOT_T) / (1.0 - PIVOT_T))
 
         st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
