@@ -106,7 +106,7 @@ if uploaded:
         for j in range(0, W - BLOCK_SIZE + 1, BLOCK_SIZE):
             mb = mag[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE]
             ob = ori[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE]
-            sigma = block_dgc(mb, ob
+            sigma = block_dgc(mb, ob)
             heatmap[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE] = sigma
 
     # overlay heatmap on detail image
