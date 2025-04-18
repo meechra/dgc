@@ -3,115 +3,78 @@ import cv2
 import numpy as np
 import pywt
 from math import sqrt, pi
-import matplotlib.pyplot as plt
 
-# --- Core DGC Functions ---
-
+# --- 1. Gradient Computation ---
 def compute_gradients(gray):
-    """Compute gradient magnitude and orientation using Sobel."""
     Gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     Gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-    magnitude = np.sqrt(Gx**2 + Gy**2)
-    orientation = np.arctan2(Gy, Gx) % (2 * pi)
+    magnitude   = np.sqrt(Gx**2 + Gy**2)
+    orientation = (np.arctan2(Gy, Gx) % (2 * pi))
     return magnitude, orientation
 
-
+# --- 2. Block‐level DGC (circular variance) ---
 def block_dgc(mag_block, ori_block):
-    """Compute DGC score for a block (circular variance)."""
+    total_weight = np.sum(mag_block) + 1e-8
     sum_cos = np.sum(mag_block * np.cos(ori_block))
     sum_sin = np.sum(mag_block * np.sin(ori_block))
-    total_weight = np.sum(mag_block) + 1e-8
     resultant = sqrt(sum_cos**2 + sum_sin**2)
     sigma = 1 - (resultant / total_weight)
-    return sigma ** 1.5
+    return sigma ** 1.5  # non‐linear scaling as before
 
-
-def compute_weighted_dgc_score(gray, block_size=7, grad_threshold=1e-3):
-    """
-    Compute weighted average DGC over image blocks,
-    skipping low-energy regions.
-    """
-    mag, ori = compute_gradients(gray)
-    rows, cols = gray.shape
-    total_score = 0.0
+# --- 3. Weighted, thresholded, sliding‐window DGC ---
+def compute_weighted_dgc_score(image, block_size=7, grad_threshold=1.0):
+    mag, ori = compute_gradients(image)
+    rows, cols = image.shape
+    weighted_sum = 0.0
     total_weight = 0.0
 
     for i in range(0, rows - block_size + 1, block_size):
         for j in range(0, cols - block_size + 1, block_size):
-            mb = mag[i:i+block_size, j:j+block_size]
-            ob = ori[i:i+block_size, j:j+block_size]
-            weight = np.sum(mb)
-            if weight < grad_threshold:
+            mag_block = mag[i:i+block_size, j:j+block_size]
+            ori_block = ori[i:i+block_size, j:j+block_size]
+            block_weight = np.sum(mag_block)
+            if block_weight < grad_threshold:
                 continue
-            score = block_dgc(mb, ob)
-            total_score += score * weight
-            total_weight += weight
+            dgc = block_dgc(mag_block, ori_block)
+            weighted_sum   += dgc * block_weight
+            total_weight   += block_weight
 
-    return (total_score / total_weight) if total_weight > 0 else 0.0
+    if total_weight == 0:
+        return 0.0
+    return weighted_sum / total_weight
 
-# --- Wavelet Denoising ---
+# --- 4. Wavelet‐detail extraction (single‐level Haar) ---
+def get_wavelet_detail_image(gray):
+    # Perform 1‐level DWT
+    cA, (cH, cV, cD) = pywt.dwt2(gray.astype(np.float32), 'db1')
+    detail = np.sqrt(cH**2 + cV**2 + cD**2)
+    # Normalize to [0,255]
+    detail_norm = cv2.normalize(detail, None, 0, 255, cv2.NORM_MINMAX)
+    return detail_norm.astype(np.uint8)
 
-def wavelet_denoise(gray, wavelet='db1', level=1):
-    """
-    Perform single-level wavelet denoising using soft thresholding.
-    """
-    coeffs = pywt.wavedec2(gray.astype(np.float32), wavelet, level=level)
-    cA, details = coeffs[0], coeffs[1]
-    cH, cV, cD = details
-    # Estimate noise sigma from diagonal detail
-    sigma = np.median(np.abs(cD)) / 0.6745
-    uthresh = sigma * np.sqrt(2 * np.log(gray.size))
-    cH_t = pywt.threshold(cH, uthresh, mode='soft')
-    cV_t = pywt.threshold(cV, uthresh, mode='soft')
-    cD_t = pywt.threshold(cD, uthresh, mode='soft')
-    coeffs_denoised = [cA, (cH_t, cV_t, cD_t)]
-    denoised = pywt.waverec2(coeffs_denoised, wavelet)
-    denoised = np.clip(denoised, 0, 255)
-    return denoised.astype(np.uint8)
+# --- 5. One‐step score: wavelet‐detail + weighted DGC ---
+def get_dgc_wavelet_detail_score(image):
+    detail_img = get_wavelet_detail_image(image)
+    return compute_weighted_dgc_score(detail_img)
 
-# --- Utility & Visualization ---
+# --- Streamlit UI ---
+st.title("DGC Wavelet‐Detail Score Calculator")
 
-def normalize_difference(diff, min_diff=-0.002356, max_diff=0.039568):
-    return (diff - min_diff) / (max_diff - min_diff)
-
-
-def plot_metric_line(norm_diff):
-    fig, ax = plt.subplots(figsize=(8, 2))
-    ax.hlines(0, 0, 1, colors='gray', linewidth=4)
-    ax.plot(norm_diff, 0, 'o', markersize=12, color='red')
-    ax.text(norm_diff, 0.1, f"{norm_diff:.3f}", ha='center', va='bottom')
-    ax.text(0, -0.1, 'no change', ha='left', va='top')
-    ax.text(1, -0.1, 'max change', ha='right', va='top')
-    ax.get_yaxis().set_visible(False)
-    for spine in ax.spines.values(): spine.set_visible(False)
-    ax.set_xlim(-0.05, 1.05)
-    ax.set_ylim(-0.3, 0.3)
-    ax.set_title("Normalized DGC Change")
-    return fig
-
-# --- Streamlit App ---
-st.title("DGC: Original vs Wavelet-Denoised")
-st.write(
-    "Upload an image to compare its DGC score against a wavelet-denoised version."
-)
-
-uploaded = st.file_uploader("Upload Image", type=["png","jpg","jpeg"])
-if uploaded:
-    data = np.frombuffer(uploaded.read(), dtype=np.uint8)
-    gray = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE)
+uploaded = st.file_uploader("Upload a Grayscale Image", type=['png','jpg','jpeg'])
+if uploaded is not None:
+    # Read and convert to grayscale numpy array
+    file_bytes = np.asarray(bytearray(uploaded.read()), dtype=np.uint8)
+    gray = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
     if gray is None:
-        st.error("Could not read image. Try another file.")
+        st.error("Could not read image.")
     else:
-        denoised = wavelet_denoise(gray)
-        orig_score = compute_weighted_dgc_score(gray)
-        denoised_score = compute_weighted_dgc_score(denoised)
-        diff = orig_score - denoised_score
-        norm_diff = normalize_difference(diff)
+        st.image(gray, caption="Input Image", clamp=True, channels="GRAY", width=300)
 
-        st.image([gray, denoised], caption=["Original","Denoised"], width=250)
-        st.write(f"**Original DGC Score:** {orig_score:.4f}")
-        st.write(f"**Denoised DGC Score:** {denoised_score:.4f}")
-        st.write(f"**Normalized Change:** {norm_diff:.3f}")
+        score = get_dgc_wavelet_detail_score(gray)
+        st.markdown(f"**DGC Wavelet‐Detail Score:** {score:.4f}")
 
-        fig = plot_metric_line(norm_diff)
-        st.pyplot(fig)
+        st.write("""
+        _Higher scores → less directional coherence in edge‐rich (wavelet‐detail) regions  
+        (i.e. more likely “stego” distortion)._  
+        Lower scores → strong coherence (i.e. likely clean).  
+        """)
