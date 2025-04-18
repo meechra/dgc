@@ -3,7 +3,6 @@ import cv2
 import numpy as np
 import pywt
 from math import sqrt, pi
-import matplotlib.pyplot as plt
 from scipy.stats import entropy
 
 st.set_page_config(layout="wide")
@@ -120,14 +119,6 @@ def hist_divergence(detail_img, denoised_img, bins, block_size, stride):
 
     return float(np.mean(kl_vals)) if kl_vals else 0.0
 
-# ─── Utility: Bar chart ───────────────────────────────────────────────
-def plot_bar(labels, values, title):
-    fig, ax = plt.subplots()
-    ax.bar(labels, values, color=['steelblue','orange','green'])
-    ax.set_title(title)
-    ax.set_ylim(0, 1.0)
-    return fig
-
 # ─── Streamlit App Body ──────────────────────────────────────────────
 uploaded = st.file_uploader("Upload Grayscale Image", type=['png','jpg','jpeg'])
 if uploaded:
@@ -147,21 +138,14 @@ if uploaded:
         ms_score = multiscale_dgc(detail_img, scales, stride_ms)
         hd_score = hist_divergence(detail_img, denoised_img, bins, block_size=7, stride=stride_hd)
 
-        # Normalize for fusion
-        norm_base = max(ms_score, hd_score, 1e-8)
-        ms_norm   = ms_score / norm_base
-        hd_norm   = hd_score / norm_base
-        fused     = alpha * ms_norm + (1-alpha) * hd_norm
+        # Fuse directly (no normalization)
+        fused     = alpha * ms_score + (1-alpha) * hd_score
 
         # Show scores
-        st.markdown(f"**Multi‑Scale DGC:** {ms_score:.4f} (norm {ms_norm:.4f})")
-        st.markdown(f"**Hist‑Divergence:** {hd_score:.4f} (norm {hd_norm:.4f})")
+        st.markdown(f"**Multi‑Scale DGC:** {ms_score:.4f}")
+        st.markdown(f"**Hist‑Divergence:** {hd_score:.4f}")
         st.markdown(f"**Fused Score (α={alpha}):** {fused:.4f}")
 
-        # New: Estimated percentage
-        percent = fused * 100
-        st.markdown(f"### Estimated Stego Interference: {percent:.1f}%")
-
-        # Bar chart
-        fig = plot_bar(['Multi‑Scale','Hist‑Div','Fused'], [ms_norm, hd_norm, fused], "Feature Contributions")
-        st.pyplot(fig)
+        # Likelihood indicator
+        likelihood = fused * 100
+        st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
