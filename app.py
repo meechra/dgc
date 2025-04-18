@@ -1,139 +1,117 @@
 import streamlit as st
 import cv2
 import numpy as np
+import pywt
 from math import sqrt, pi
 import matplotlib.pyplot as plt
 
-# --- Helper Functions ---
-
-def denoise_gray(gray):
-    """Denoise the grayscale image."""
-    return cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7, searchWindowSize=21)
+# --- Core DGC Functions ---
 
 def compute_gradients(gray):
-    """Compute gradients using the Sobel operator."""
+    """Compute gradient magnitude and orientation using Sobel."""
     Gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     Gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
     magnitude = np.sqrt(Gx**2 + Gy**2)
     orientation = np.arctan2(Gy, Gx) % (2 * pi)
     return magnitude, orientation
 
+
 def block_dgc(mag_block, ori_block):
-    """Compute weighted circular variance for a block."""
+    """Compute DGC score for a block (circular variance)."""
     sum_cos = np.sum(mag_block * np.cos(ori_block))
     sum_sin = np.sum(mag_block * np.sin(ori_block))
-    total_weight = np.sum(mag_block) + 1e-8  # Prevent division by zero
+    total_weight = np.sum(mag_block) + 1e-8
     resultant = sqrt(sum_cos**2 + sum_sin**2)
     sigma = 1 - (resultant / total_weight)
-    return sigma ** 1.5  # Non-linear scaling
+    return sigma ** 1.5
 
-def compute_global_dgc(gray, block_size=7):
+
+def compute_weighted_dgc_score(gray, block_size=7, grad_threshold=1e-3):
     """
-    Compute the global DGC score for a grayscale image using blocks of size block_size x block_size.
+    Compute weighted average DGC over image blocks,
+    skipping low-energy regions.
     """
-    magnitude, orientation = compute_gradients(gray)
+    mag, ori = compute_gradients(gray)
     rows, cols = gray.shape
-    num_blocks_row = rows // block_size
-    num_blocks_col = cols // block_size
+    total_score = 0.0
+    total_weight = 0.0
 
-    dgc_values = []
-    for i in range(num_blocks_row):
-        for j in range(num_blocks_col):
-            r0, r1 = i * block_size, (i + 1) * block_size
-            c0, c1 = j * block_size, (j + 1) * block_size
-            mag_block = magnitude[r0:r1, c0:c1]
-            ori_block = orientation[r0:r1, c0:c1]
-            dgc_values.append(block_dgc(mag_block, ori_block))
-    
-    return np.mean(dgc_values)
+    for i in range(0, rows - block_size + 1, block_size):
+        for j in range(0, cols - block_size + 1, block_size):
+            mb = mag[i:i+block_size, j:j+block_size]
+            ob = ori[i:i+block_size, j:j+block_size]
+            weight = np.sum(mb)
+            if weight < grad_threshold:
+                continue
+            score = block_dgc(mb, ob)
+            total_score += score * weight
+            total_weight += weight
+
+    return (total_score / total_weight) if total_weight > 0 else 0.0
+
+# --- Wavelet Denoising ---
+
+def wavelet_denoise(gray, wavelet='db1', level=1):
+    """
+    Perform single-level wavelet denoising using soft thresholding.
+    """
+    coeffs = pywt.wavedec2(gray.astype(np.float32), wavelet, level=level)
+    cA, details = coeffs[0], coeffs[1]
+    cH, cV, cD = details
+    # Estimate noise sigma from diagonal detail
+    sigma = np.median(np.abs(cD)) / 0.6745
+    uthresh = sigma * np.sqrt(2 * np.log(gray.size))
+    cH_t = pywt.threshold(cH, uthresh, mode='soft')
+    cV_t = pywt.threshold(cV, uthresh, mode='soft')
+    cD_t = pywt.threshold(cD, uthresh, mode='soft')
+    coeffs_denoised = [cA, (cH_t, cV_t, cD_t)]
+    denoised = pywt.waverec2(coeffs_denoised, wavelet)
+    denoised = np.clip(denoised, 0, 255)
+    return denoised.astype(np.uint8)
+
+# --- Utility & Visualization ---
 
 def normalize_difference(diff, min_diff=-0.002356, max_diff=0.039568):
-    """
-    Normalize the difference to a [0,1] range using calibration values.
-    Here, diff = stego_global - clean_global.
-    """
     return (diff - min_diff) / (max_diff - min_diff)
 
-def read_image(uploaded_file):
-    """Read an uploaded image and convert it to grayscale."""
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    image = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
-    return image
 
 def plot_metric_line(norm_diff):
-    """
-    Plot a horizontal number line from 0 to 1 with a marker at the normalized difference.
-    Label the left end as "no interference" and the right end as "max interference."
-    """
     fig, ax = plt.subplots(figsize=(8, 2))
-    
-    # Draw a horizontal baseline across the full [0,1] range.
     ax.hlines(0, 0, 1, colors='gray', linewidth=4)
-    
-    # Plot the marker for the normalized difference.
-    ax.plot(norm_diff, 0, marker='o', markersize=12, color='red')
-    
-    # Add text label above the marker.
-    ax.text(norm_diff, 0.1, f"{norm_diff:.3f}", ha='center', va='bottom', fontsize=10, color='red')
-    
-    # Label the extremities.
-    ax.text(0, -0.1, 'min diff', ha='left', va='top', fontsize=10, color='black')
-    ax.text(1, -0.1, 'max diff', ha='right', va='top', fontsize=10, color='black')
-    
-    # Clean up the plot.
+    ax.plot(norm_diff, 0, 'o', markersize=12, color='red')
+    ax.text(norm_diff, 0.1, f"{norm_diff:.3f}", ha='center', va='bottom')
+    ax.text(0, -0.1, 'no change', ha='left', va='top')
+    ax.text(1, -0.1, 'max change', ha='right', va='top')
     ax.get_yaxis().set_visible(False)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    
+    for spine in ax.spines.values(): spine.set_visible(False)
     ax.set_xlim(-0.05, 1.05)
     ax.set_ylim(-0.3, 0.3)
-    ax.set_title("Normalized Difference Metric")
+    ax.set_title("Normalized DGC Change")
     return fig
 
 # --- Streamlit App ---
+st.title("DGC: Original vs Wavelet-Denoised")
+st.write(
+    "Upload an image to compare its DGC score against a wavelet-denoised version."
+)
 
-st.title("DGC Score Calculator with Normalized Difference Metric")
-st.write("""
-This app calculates the Directional Gradient Consistency (DGC) scores for a pair of images:
-- A **Clean** image
-- A **Stego** (steganographically modified) image
-
-Each image is divided into 7×7 blocks, and a global DGC score is computed as the average of the local block scores.
-The final metric is the normalized difference between the stego and clean scores,
-normalized to a [0,1] range using calibration values.
-""")
-
-# File upload widgets for the clean and stego images.
-clean_file = st.file_uploader("Upload Clean Image", type=["png", "jpg", "jpeg"])
-stego_file = st.file_uploader("Upload Stego Image", type=["png", "jpg", "jpeg"])
-
-if clean_file is not None and stego_file is not None:
-    # Read the images.
-    clean_img = read_image(clean_file)
-    stego_img = read_image(stego_file)
-    
-    if clean_img is None or stego_img is None:
-        st.error("Error reading one or both images. Please try a different file.")
+uploaded = st.file_uploader("Upload Image", type=["png","jpg","jpeg"])
+if uploaded:
+    data = np.frombuffer(uploaded.read(), dtype=np.uint8)
+    gray = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE)
+    if gray is None:
+        st.error("Could not read image. Try another file.")
     else:
-        # Optionally display the images.
-        st.image([clean_img, stego_img], caption=["Clean Image", "Stego Image"], width=250)
+        denoised = wavelet_denoise(gray)
+        orig_score = compute_weighted_dgc_score(gray)
+        denoised_score = compute_weighted_dgc_score(denoised)
+        diff = orig_score - denoised_score
+        norm_diff = normalize_difference(diff)
 
-        # Denoise the images.
-        clean_img_denoised = denoise_gray(clean_img)
-        stego_img_denoised = denoise_gray(stego_img)
-        
-        # Compute the global DGC scores using 7x7 blocks.
-        clean_global = compute_global_dgc(clean_img_denoised, block_size=7)
-        stego_global = compute_global_dgc(stego_img_denoised, block_size=7)
-        
-        # Compute the difference (stego - clean) and normalize it.
-        diff = stego_global - clean_global
-        norm_diff = normalize_difference(diff, min_diff=-0.002356, max_diff=0.039568)
-        
-        # Display only the normalized difference metric.
-        st.write("### Normalized Difference Metric:")
-        st.write(f"**Normalized Difference:** {norm_diff:.3f}")
-        
-        # Plot and display the number line visualization.
-        metric_fig = plot_metric_line(norm_diff)
-        st.pyplot(metric_fig)
+        st.image([gray, denoised], caption=["Original","Denoised"], width=250)
+        st.write(f"**Original DGC Score:** {orig_score:.4f}")
+        st.write(f"**Denoised DGC Score:** {denoised_score:.4f}")
+        st.write(f"**Normalized Change:** {norm_diff:.3f}")
+
+        fig = plot_metric_line(norm_diff)
+        st.pyplot(fig)
