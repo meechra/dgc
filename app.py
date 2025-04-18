@@ -26,8 +26,7 @@ def block_dgc(mag_block, ori_block):
 def compute_weighted_dgc_score(img, block_size=7, grad_threshold=1.0):
     mag, ori = compute_gradients(img)
     h, w = img.shape
-    num = 0.0
-    den = 0.0
+    num = den = 0.0
     for i in range(0, h-block_size+1, block_size):
         for j in range(0, w-block_size+1, block_size):
             mb = mag[i:i+block_size, j:j+block_size]
@@ -39,38 +38,29 @@ def compute_weighted_dgc_score(img, block_size=7, grad_threshold=1.0):
             den += weight
     return (num/den) if den>0 else 0.0
 
-# 4a. Wavelet‐detail extraction (high‑freq)
+# 4a. Wavelet‐detail extraction
 def get_wavelet_detail_image(gray):
     cA, (cH, cV, cD) = pywt.dwt2(gray.astype(np.float32), 'db1')
     detail = np.sqrt(cH**2 + cV**2 + cD**2)
     return cv2.normalize(detail, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
-# 4b. Wavelet soft‑threshold denoising
-def get_wavelet_denoised_image(gray):
-    arr = gray.astype(np.float32)
-    coeffs = pywt.wavedec2(arr, 'db1', level=1)
-    cA, (cH, cV, cD) = coeffs
-    # Universal threshold (Donoho)
-    sigma = np.median(np.abs(cD)) / 0.6745
-    uth = sigma * np.sqrt(2*np.log(arr.size))
-    cH = pywt.threshold(cH, uth, mode='soft')
-    cV = pywt.threshold(cV, uth, mode='soft')
-    cD = pywt.threshold(cD, uth, mode='soft')
-    den_coeffs = [cA, (cH, cV, cD)]
-    denoised = pywt.waverec2(den_coeffs, 'db1')
-    return cv2.normalize(denoised, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+# 4b. NEW: Bilateral‐filter denoising on detail image
+def get_wavelet_denoised_image(gray, diameter=9, sigmaColor=75, sigmaSpace=75):
+    detail = get_wavelet_detail_image(gray)
+    denoised = cv2.bilateralFilter(detail, diameter, sigmaColor, sigmaSpace)
+    return denoised
 
 # 5. Simple bar chart comparison
 def plot_score_comparison(raw, den):
     fig, ax = plt.subplots()
     ax.bar(['Detail','Denoised'], [raw, den], color=['steelblue','orange'])
     ax.set_ylabel('Weighted DGC Score')
-    ax.set_title('Raw vs. Wavelet‑Denoised DGC')
+    ax.set_title('Raw vs. Bilateral‑Denoised DGC')
     ax.set_ylim(0, max(raw, den)*1.1)
     return fig
 
 # --- Streamlit UI ---
-st.title("Wavelet‑Detail DGC: Raw vs. Wavelet‑Denoised")
+st.title("Wavelet‑Detail DGC: Raw vs. Bilateral‑Denoised")
 
 uploaded = st.file_uploader("Upload Grayscale Image", type=['png','jpg','jpeg'])
 if uploaded:
@@ -81,17 +71,18 @@ if uploaded:
     else:
         st.image(gray, caption="Original Grayscale", clamp=True, width=300)
 
-        # Detail & Denoised images
+        # Detail & Bilateral‐denoised images
         detail_img   = get_wavelet_detail_image(gray)
-        denoised_img = get_wavelet_denoised_image(gray)
+        denoised_img = get_wavelet_denoised_image(gray,
+                              diameter=9, sigmaColor=75, sigmaSpace=75)
 
-        st.image(detail_img, caption="Wavelet Detail", clamp=True, width=300)
-        st.image(denoised_img, caption="Wavelet‑Denoised", clamp=True, width=300)
+        st.image(detail_img,   caption="Wavelet Detail",      clamp=True, width=300)
+        st.image(denoised_img, caption="Bilateral‑Denoised", clamp=True, width=300)
 
         # Compute scores
-        raw_score  = compute_weighted_dgc_score(detail_img)
-        den_score  = compute_weighted_dgc_score(denoised_img)
-        diff       = raw_score - den_score
+        raw_score = compute_weighted_dgc_score(detail_img)
+        den_score = compute_weighted_dgc_score(denoised_img)
+        diff      = raw_score - den_score
 
         st.markdown(f"**Raw DGC Score:** {raw_score:.4f}")
         st.markdown(f"**Denoised DGC Score:** {den_score:.4f}")
@@ -102,6 +93,6 @@ if uploaded:
         st.pyplot(fig)
 
         st.write("""
-        _A larger gap (difference) means wavelet denoising removed more high‑freq directional inconsistency  
-        — i.e. stronger stego‑like artifacts in the detail image._
+        _A larger gap means bilateral filtering removed more directional inconsistency  
+        — i.e. stronger artifacts in the detail image._
         """)
