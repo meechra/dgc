@@ -3,10 +3,9 @@ import cv2
 import numpy as np
 import pywt
 from math import sqrt, pi
-import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("Stego‑Interference Detector with Visualizations")
+st.title("Stego‑Interference Detector")
 
 # ─── Fixed Settings ────────────────────────────────────────────────────
 P_EXPONENT     = 2.5        # block_dgc exponent
@@ -65,66 +64,38 @@ if gray is None:
     st.error("Invalid image.")
     st.stop()
 
-# detail and denoised
+# Wavelet detail and denoised versions
 detail   = get_wavelet_detail_image(gray)
 denoised = get_wavelet_denoised_image(detail)
 
-# compute scores
+# Compute DGC scores
 raw_score      = compute_weighted_dgc_score(detail)
 denoised_score = compute_weighted_dgc_score(denoised)
 fused          = raw_score - denoised_score
 
-# percentage mapping
+# Map to percentage
 if fused <= PIVOT_T:
     likelihood = 50.0 * (fused / PIVOT_T)
 else:
     likelihood = 50.0 + 50.0 * ((fused - PIVOT_T) / (1.0 - PIVOT_T))
 
-# display metrics
+# Display metrics
 st.markdown(f"**Raw DGC Score:**      {raw_score:.4f}")
 st.markdown(f"**Denoised DGC Score:** {denoised_score:.4f}")
 st.markdown(f"**Difference:**        {fused:.4f}")
 st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
 
-# build visualizations
-mag, ori = compute_gradients(detail)
-H, W = detail.shape
-
-# 1) Block‑Level DGC Heatmap
-heatmap = np.zeros_like(detail, dtype=float)
-for i in range(0, H - BLOCK_SIZE + 1, BLOCK_SIZE):
-    for j in range(0, W - BLOCK_SIZE + 1, BLOCK_SIZE):
-        mb = mag[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE]
-        ob = ori[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE]
-        heatmap[i:i+BLOCK_SIZE, j:j+BLOCK_SIZE] = block_dgc(mb, ob)
-
-# 2) Detail − Denoised Difference Map
+# Compute and show difference map
 diff_map = cv2.absdiff(detail, denoised)
+st.subheader("Detail − Denoised Difference")
+fig, ax = plt.subplots(figsize=(5,5))
+ax.imshow(diff_map, cmap='inferno')
+ax.axis('off')
+st.pyplot(fig)
 
-# side‑by‑side columns
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Block‑Level DGC Heatmap")
-    fig1, ax1 = plt.subplots(figsize=(4,4))
-    ax1.imshow(detail, cmap='gray')
-    hm = ax1.imshow(heatmap, cmap='jet', alpha=0.5, vmin=0, vmax=1)
-    ax1.axis('off')
-    fig1.colorbar(hm, ax=ax1, fraction=0.046, pad=0.04)
-    st.pyplot(fig1)
-
-with col2:
-    st.subheader("Detail − Denoised Difference")
-    fig2, ax2 = plt.subplots(figsize=(4,4))
-    ax2.imshow(diff_map, cmap='inferno')
-    ax2.axis('off')
-    st.pyplot(fig2)
-
-# sharp explanations
+# Sharp explanation of the difference map
 st.markdown("""
-- **Block‑Level DGC Heatmap:**  
-  Bright blocks mark areas where edge directions are unnaturally tossed around—strong evidence of tampering.
-
-- **Difference Map (Detail − Denoised):**  
-  Bright regions show where smoothing strips away the most high‑frequency noise—spots where hidden data was embedded.
+- **Difference Map:**  
+  Bright regions show where smoothing removed the most detail.  
+  Those hotspots correspond directly to areas where hidden data disrupts the natural texture, making stego interference visually obvious.
 """)
