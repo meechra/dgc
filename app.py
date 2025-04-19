@@ -77,10 +77,10 @@ denoised = get_wavelet_denoised_image(detail)
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Original Grayscale")
-    st.image(gray, clamp=True, channels="GRAY", use_column_width=True)
+    st.image(gray, clamp=True, channels="GRAY", use_container_width=True)
 with col2:
     st.subheader("Denoised Detail")
-    st.image(denoised, clamp=True, channels="GRAY", use_column_width=True)
+    st.image(denoised, clamp=True, channels="GRAY", use_container_width=True)
 
 # Compute DGC scores
 raw_score      = compute_weighted_dgc_score(detail)
