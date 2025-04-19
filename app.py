@@ -91,9 +91,9 @@ raw_score      = compute_weighted_dgc_score(detail)
 denoised_score = compute_weighted_dgc_score(denoised)
 fused          = raw_score - denoised_score
 
-# Linear ramp mapping
+# ─── Linear ramp mapping ───────────────────────────────────────────────
 if fused <= LOW_MEDIAN:
-    likelihood = 25.0 * (fused / LOW_MEDIAN) if LOW_MEDIAN>0 else 0.0
+    likelihood = 25.0 * (fused / LOW_MEDIAN) if LOW_MEDIAN > 0 else 0.0
 elif fused <= HIGH_MEDIAN:
     frac = (fused - LOW_MEDIAN) / (HIGH_MEDIAN - LOW_MEDIAN)
     likelihood = 25.0 + 50.0 * frac
@@ -101,8 +101,8 @@ else:
     frac = (fused - HIGH_MEDIAN) / (1.0 - HIGH_MEDIAN)
     likelihood = 75.0 + 25.0 * frac
 
-# Relative position (0–100) between the two medians
-rel_pos = np.clip((fused - LOW_MEDIAN) / (HIGH_MEDIAN - LOW_MEDIAN), 0.0, 1.0) * 100
+# Continuous relative position without clamping
+rel_pos = (fused - LOW_MEDIAN) / (HIGH_MEDIAN - LOW_MEDIAN) * 100
 
 # Display metrics
 st.markdown(f"**Raw DGC Score:**      {raw_score:.4f}")
@@ -110,7 +110,7 @@ st.markdown(f"**Denoised DGC Score:** {denoised_score:.4f}")
 st.markdown(f"**Difference:**        {fused:.4f}")
 st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
 
-# Difference map
+# Difference map visualization
 diff_map = cv2.absdiff(detail, denoised)
 st.subheader("Detail − Denoised Difference")
 fig, ax = plt.subplots(figsize=(5,5))
@@ -118,28 +118,24 @@ ax.imshow(diff_map, cmap='inferno')
 ax.axis('off')
 st.pyplot(fig)
 
-# Visual number line for relative position
+# Visual number line for continuous relative position
 st.subheader("Relative Position Between Clean & Stego Medians")
 fig2, ax2 = plt.subplots(figsize=(8,1.5))
-# draw line
 ax2.hlines(0, 0, 100, colors='gray', linewidth=4)
-# marker
 ax2.plot(rel_pos, 0, 'o', markersize=10, color='red')
-# labels
 ax2.text(0, 0.1, 'Clean median', ha='left', va='bottom', fontsize=10)
 ax2.text(100, 0.1, 'Stego median', ha='right', va='bottom', fontsize=10)
 ax2.text(rel_pos, -0.1, f"{rel_pos:.1f}%", ha='center', va='top', fontsize=10, color='red')
-# clean up
 ax2.axis('off')
-ax2.set_xlim(-5, 105)
+ax2.set_xlim(-20, 120)
 ax2.set_ylim(-0.5, 0.5)
 st.pyplot(fig2)
 
 # Explanation
 st.markdown("""
 **Difference Map Explained:**  
-Bright regions show where smoothing removed the most texture “bumps”—these hotspots mark where secret bits lived, driving the likelihood score above.
+Bright areas show where smoothing removed the most texture “bumps”—these hotspots mark where secret bits lived, driving the likelihood score.
 
 **Relative Position:**  
-Shows where your image’s DGC difference sits on the spectrum from the typical clean median (0%) to the typical stego median (100%).
+A continuous marker showing where your image’s fused score lies between the typical clean median (0) and stego median (100), without snapping to extremes.
 """)
