@@ -2,21 +2,25 @@ import streamlit as st
 import cv2
 import numpy as np
 import pywt
-from math import sqrt, pi, exp
+from math import sqrt, pi
 import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
 st.title("Stego‑Interference Detector")
 
 # ─── Fixed Settings ────────────────────────────────────────────────────
-P_EXPONENT     = 2.5       # block_dgc exponent
-WEIGHT_EXP     = 2         # block weight = sum(mag**WEIGHT_EXP)
-GRAD_THRESHOLD = 1.0       # ignore low‑energy blocks
-BLOCK_SIZE     = 7         # block size for DGC
+P_EXPONENT     = 2.5        # block_dgc exponent
+WEIGHT_EXP     = 2          # block weight = sum(mag**WEIGHT_EXP)
+GRAD_THRESHOLD = 1.0        # ignore low‑energy blocks
+BLOCK_SIZE     = 7          # block size for DGC
 
-# ─── Empirical Pivot & Steepness ──────────────────────────────────────
-PIVOT_T   = 0.0024         # midpoint of new medians
-K_STEEP   = 1000           # much steeper → pushes clean scores toward 0%
+# ─── Empirical Medians (from your larger dataset) ──────────────────────
+MEDIAN_CLEAN   = 0.0030     # clean images median DGC
+MEDIAN_STEGO   = 0.0018     # stego images median DGC
+
+# ensure clean_median < stego_median for mapping
+LOW_MEDIAN  = min(MEDIAN_CLEAN, MEDIAN_STEGO)
+HIGH_MEDIAN = max(MEDIAN_CLEAN, MEDIAN_STEGO)
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 def compute_gradients(gray):
@@ -62,42 +66,55 @@ uploaded = st.file_uploader("Upload a Grayscale Image", type=['png','jpg','jpeg'
 if not uploaded:
     st.stop()
 
-# Read and decode
+# Read input
 data = np.frombuffer(uploaded.read(), np.uint8)
 gray = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE)
 if gray is None:
     st.error("Invalid image.")
     st.stop()
 
-# Compute wavelet‐detail and its denoised version
+# Compute detail + denoised
 detail   = get_wavelet_detail_image(gray)
 denoised = get_wavelet_denoised_image(detail)
 
-# Show inputs side by side
-col1, col2 = st.columns(2)
-with col1:
+# Show original & denoised side by side
+c1, c2 = st.columns(2)
+with c1:
     st.subheader("Original Grayscale")
     st.image(gray, clamp=True, channels="GRAY", use_container_width=True)
-with col2:
+with c2:
     st.subheader("Denoised Detail")
     st.image(denoised, clamp=True, channels="GRAY", use_container_width=True)
 
-# Compute DGC scores
+# Compute fused score
 raw_score      = compute_weighted_dgc_score(detail)
 denoised_score = compute_weighted_dgc_score(denoised)
 fused          = raw_score - denoised_score
 
-# Apply steep sigmoid mapping for likelihood
-likelihood = 1 / (1 + exp(-K_STEEP * (fused - PIVOT_T)))
-likelihood *= 100
+# ─── Linear ramp mapping ───────────────────────────────────────────────
+if fused <= LOW_MEDIAN:
+    # 0 … LOW_MEDIAN → 0 … 25%
+    likelihood = 25.0 * (fused / LOW_MEDIAN) if LOW_MEDIAN>0 else 0.0
+elif fused <= HIGH_MEDIAN:
+    # LOW_MEDIAN … HIGH_MEDIAN → 25 … 75%
+    frac = (fused - LOW_MEDIAN) / (HIGH_MEDIAN - LOW_MEDIAN)
+    likelihood = 25.0 + 50.0 * frac
+else:
+    # HIGH_MEDIAN … → 75 … 100%
+    frac = (fused - HIGH_MEDIAN) / (1.0 - HIGH_MEDIAN)
+    likelihood = 75.0 + 25.0 * frac
+
+# also compute relative position between medians
+rel_pos = np.clip((fused - LOW_MEDIAN) / (HIGH_MEDIAN - LOW_MEDIAN), 0, 1) * 100
 
 # Display metrics
 st.markdown(f"**Raw DGC Score:**      {raw_score:.4f}")
 st.markdown(f"**Denoised DGC Score:** {denoised_score:.4f}")
 st.markdown(f"**Difference:**        {fused:.4f}")
 st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
+st.markdown(f"**Relative Position (clean→stego median):** {rel_pos:.1f}%")
 
-# Difference map
+# Difference map visualization
 diff_map = cv2.absdiff(detail, denoised)
 st.subheader("Detail − Denoised Difference")
 fig, ax = plt.subplots(figsize=(5,5))
@@ -105,7 +122,9 @@ ax.imshow(diff_map, cmap='inferno')
 ax.axis('off')
 st.pyplot(fig)
 
+# Explanation
 st.markdown("""
 **Difference Map Explained:**  
-Bright regions show where smoothing erased the most hidden detail—these hotspots mark where secret bits lived, and the overall strength of these removals drives the likelihood score above.
+Bright areas show where smoothing removed the most texture “bumps”—these are the spots likely hiding secret data.  
+The **Likelihood** is your overall tamper‑score on a 0–100% scale; the **Relative Position** tells you how far your image’s score sits between the typical clean vs. stego medians.
 """)
