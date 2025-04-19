@@ -6,7 +6,7 @@ from math import sqrt, pi, exp
 import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("Stego‑Interference Detector")
+st.title("PVD Stego‑Interference Detector with DGC Metric")
 
 # ─── Fixed Settings ────────────────────────────────────────────────────
 P_EXPONENT     = 2.5        # block_dgc exponent
@@ -15,8 +15,9 @@ GRAD_THRESHOLD = 1.0        # ignore low‑energy blocks
 BLOCK_SIZE     = 7          # block size for DGC
 
 # ─── Empirical Pivot & Steepness ──────────────────────────────────────
-PIVOT_T   = 0.00805         # midpoint of clean/stego medians
-K_STEEP   = 200             # higher → sharper 50% transition
+# Clean median = 0.0030, Stego median = 0.0018 → midpoint ≈ 0.0024
+PIVOT_T   = 0.0024          # new sigmoid pivot
+K_STEEP   = 200             # controls curve sharpness
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 def compute_gradients(gray):
@@ -73,7 +74,7 @@ if gray is None:
 detail   = get_wavelet_detail_image(gray)
 denoised = get_wavelet_denoised_image(detail)
 
-# — Show original and denoised side by side —
+# Show original and denoised side by side
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Original Grayscale")
@@ -108,6 +109,5 @@ st.pyplot(fig)
 # Explanation of the difference map
 st.markdown("""
 **Difference Map Explained:**  
-Bright regions show exactly where smoothing has erased the most hidden “bumps” in the texture.  
-Those hotspots correspond to areas where secret data was embedded, and their strength drives the likelihood score above.
+Bright regions show where smoothing erased the most high‑frequency texture—these hotspots correspond to embedded secret data, and their intensity drives the likelihood score above.
 """)
