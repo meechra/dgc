@@ -3,17 +3,20 @@ import cv2
 import numpy as np
 import pywt
 from math import sqrt, pi
-import matplotlib.pyplot as plt  # ← ensure this is here
+import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("PVD Stego‑Interference Detector with DGC Metric")
+st.title("Stego‑Interference Detector")
 
 # ─── Fixed Settings ────────────────────────────────────────────────────
 P_EXPONENT     = 2.5        # block_dgc exponent
 WEIGHT_EXP     = 2          # block weight = sum(mag**WEIGHT_EXP)
 GRAD_THRESHOLD = 1.0        # ignore low‑energy blocks
 BLOCK_SIZE     = 7          # block size for DGC
-PIVOT_T        = 0.01611    # pivot for 50% likelihood
+
+# ─── Empirical Clean/Stego Medians ────────────────────────────────────
+CLEAN_MEDIAN   = 0.0015     # DGC median over 500 clean images
+STEGO_MEDIAN   = 0.0146     # DGC median over 500 stego images
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 def compute_gradients(gray):
@@ -59,13 +62,14 @@ uploaded = st.file_uploader("Upload a Grayscale Image", type=['png','jpg','jpeg'
 if not uploaded:
     st.stop()
 
+# Read input
 data = np.frombuffer(uploaded.read(), np.uint8)
 gray = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE)
 if gray is None:
     st.error("Invalid image.")
     st.stop()
 
-# Wavelet detail and denoised versions
+# Compute detail + denoised maps
 detail   = get_wavelet_detail_image(gray)
 denoised = get_wavelet_denoised_image(detail)
 
@@ -74,30 +78,36 @@ raw_score      = compute_weighted_dgc_score(detail)
 denoised_score = compute_weighted_dgc_score(denoised)
 fused          = raw_score - denoised_score
 
-# Map to percentage
-if fused <= PIVOT_T:
-    likelihood = 50.0 * (fused / PIVOT_T)
+# Piecewise stretch to enforce clean~25%, stego~70%
+if fused <= CLEAN_MEDIAN:
+    # 0 … CLEAN_MEDIAN → 0 … 25%
+    likelihood = 25.0 * (fused / CLEAN_MEDIAN)
+elif fused <= STEGO_MEDIAN:
+    # CLEAN_MEDIAN … STEGO_MEDIAN → 25 … 70%
+    frac = (fused - CLEAN_MEDIAN) / (STEGO_MEDIAN - CLEAN_MEDIAN)
+    likelihood = 25.0 + 45.0 * frac
 else:
-    likelihood = 50.0 + 50.0 * ((fused - PIVOT_T) / (1.0 - PIVOT_T))
+    # STEGO_MEDIAN … 1 → 70 … 100%
+    frac = (fused - STEGO_MEDIAN) / (1.0 - STEGO_MEDIAN)
+    likelihood = 70.0 + 30.0 * frac
 
-# Display metrics
+# Display scores
 st.markdown(f"**Raw DGC Score:**      {raw_score:.4f}")
 st.markdown(f"**Denoised DGC Score:** {denoised_score:.4f}")
 st.markdown(f"**Difference:**        {fused:.4f}")
 st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
 
-# Compute and show difference map
+# Difference map visualization
 diff_map = cv2.absdiff(detail, denoised)
 st.subheader("Detail − Denoised Difference")
-
 fig, ax = plt.subplots(figsize=(5,5))
 ax.imshow(diff_map, cmap='inferno')
 ax.axis('off')
 st.pyplot(fig)
 
-# Sharp explanation of the difference map
+# Explanation of the difference map
 st.markdown("""
-- **Difference Map:**  
-  Bright regions show where smoothing removed the most detail.  
-  Those hotspots correspond directly to areas where hidden data disrupts the natural texture, making stego interference visually obvious.
+**Difference Map Explained:**  
+Bright spots show exactly where smoothing has erased the most hidden “bumps” in the texture.  
+Those are the locations where secret data was likely embedded, and the overall “spread” of those hotspots feeds into the percentage above.
 """)
