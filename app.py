@@ -6,7 +6,7 @@ from math import sqrt, pi
 import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("Stego‑Interference Detector")
+st.title("PVD Stego‑Interference Detector with DGC Metric")
 
 # ─── Fixed Settings ────────────────────────────────────────────────────
 P_EXPONENT     = 2.5        # block_dgc exponent
@@ -72,11 +72,11 @@ if gray is None:
     st.error("Invalid image.")
     st.stop()
 
-# Compute detail + denoised
+# Compute detail and denoised images
 detail   = get_wavelet_detail_image(gray)
 denoised = get_wavelet_denoised_image(detail)
 
-# Show original & denoised side by side
+# Display original & denoised side by side
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Original Grayscale")
@@ -100,8 +100,9 @@ else:
     frac = (fused - HIGH_MEDIAN) / (1.0 - HIGH_MEDIAN)
     likelihood = 75.0 + 25.0 * frac
 
-# ─── Relative position (no clamp) ───────────────────────────────────
+# ─── Continuous relative position clamped to [0,100] ────────────────
 rel_pos = (fused - LOW_MEDIAN) / (HIGH_MEDIAN - LOW_MEDIAN) * 100
+rel_pos = float(np.clip(rel_pos, 0.0, 100.0))
 
 # Display metrics
 st.markdown(f"**Raw DGC Score:**      {raw_score:.4f}")
@@ -126,18 +127,15 @@ ax2.text(0, 0.1, 'Clean median', ha='left', va='bottom')
 ax2.text(100, 0.1, 'Stego median', ha='right', va='bottom')
 ax2.text(rel_pos, -0.1, f"{rel_pos:.1f}%", ha='center', va='top', color='red')
 ax2.axis('off')
-ax2.set_xlim(-20, 120)
+ax2.set_xlim(-5, 105)
 ax2.set_ylim(-0.5, 0.5)
 st.pyplot(fig2)
 
 # Explanation
 st.markdown("""
-**Difference Map Explained:**  
-Bright spots show where smoothing removed the most high‑frequency details—those are likely hiding secret data.
-
-**Likelihood:**  
-Your image’s overall tampering score on a 0–100% scale.
+**Difference Map:**  
+Bright spots show where smoothing removed the most high‑frequency details—likely hiding secret data.
 
 **Relative Position:**  
-Where your score lies between the clean median (0%) and stego median (100%), shown on the number line above.
+Where your fused score lies between the clean median (0%) and stego median (100%).
 """)
