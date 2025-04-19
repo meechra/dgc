@@ -14,11 +14,10 @@ WEIGHT_EXP     = 2          # block weight = sum(mag**WEIGHT_EXP)
 GRAD_THRESHOLD = 1.0        # ignore low‑energy blocks
 BLOCK_SIZE     = 7          # block size for DGC
 
-# ─── Empirical Medians (from your larger dataset) ──────────────────────
+# ─── Empirical Medians ─────────────────────────────────────────────────
 MEDIAN_CLEAN   = 0.0030     # clean images median DGC
 MEDIAN_STEGO   = 0.0018     # stego images median DGC
 
-# ensure proper ordering
 LOW_MEDIAN  = min(MEDIAN_CLEAN, MEDIAN_STEGO)
 HIGH_MEDIAN = max(MEDIAN_CLEAN, MEDIAN_STEGO)
 
@@ -51,7 +50,7 @@ def compute_weighted_dgc_score(img):
                 continue
             num += block_dgc(mb, ob) * weight
             den += weight
-    return (num/den) if den > 0 else 0.0
+    return (num / den) if den > 0 else 0.0
 
 def get_wavelet_detail_image(gray):
     _, (cH, cV, cD) = pywt.dwt2(gray.astype(np.float32), 'db1')
@@ -66,18 +65,18 @@ uploaded = st.file_uploader("Upload a Grayscale Image", type=['png','jpg','jpeg'
 if not uploaded:
     st.stop()
 
-# Read input
+# Load and decode
 data = np.frombuffer(uploaded.read(), np.uint8)
 gray = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE)
 if gray is None:
     st.error("Invalid image.")
     st.stop()
 
-# Compute detail + denoised maps
+# Compute detail and denoised images
 detail   = get_wavelet_detail_image(gray)
 denoised = get_wavelet_denoised_image(detail)
 
-# Show original & denoised side by side
+# Display original & denoised side by side
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Original Grayscale")
@@ -86,29 +85,30 @@ with col2:
     st.subheader("Denoised Detail")
     st.image(denoised, clamp=True, channels="GRAY", use_container_width=True)
 
-# Compute fused DGC score
+# ─── compute fused score as before ───────────────────────────────────
 raw_score      = compute_weighted_dgc_score(detail)
 denoised_score = compute_weighted_dgc_score(denoised)
 fused          = raw_score - denoised_score
 
-# ─── Linear ramp mapping ───────────────────────────────────────────────
-if fused <= LOW_MEDIAN:
-    likelihood = 25.0 * (fused / LOW_MEDIAN) if LOW_MEDIAN > 0 else 0.0
-elif fused <= HIGH_MEDIAN:
-    frac = (fused - LOW_MEDIAN) / (HIGH_MEDIAN - LOW_MEDIAN)
-    likelihood = 25.0 + 50.0 * frac
-else:
-    frac = (fused - HIGH_MEDIAN) / (1.0 - HIGH_MEDIAN)
-    likelihood = 75.0 + 25.0 * frac
-
-# Continuous relative position without clamping
+# ─── relative position (no clamp) ───────────────────────────────────
 rel_pos = (fused - LOW_MEDIAN) / (HIGH_MEDIAN - LOW_MEDIAN) * 100
 
-# Display metrics
+# ─── draw number line from 0…100 with marker at rel_pos ─────────────
+fig2, ax2 = plt.subplots(figsize=(8,1.5))
+ax2.hlines(0, 0, 100, colors='gray', linewidth=4)
+ax2.plot(rel_pos, 0, 'o', markersize=10, color='red')
+ax2.text(0, 0.1, 'Clean median', ha='left', va='bottom')
+ax2.text(100, 0.1, 'Stego median', ha='right', va='bottom')
+ax2.text(rel_pos, -0.1, f"{rel_pos:.1f}%", ha='center', va='top', color='red')
+ax2.axis('off')
+ax2.set_xlim(-20, 120)
+ax2.set_ylim(-0.5, 0.5)
+st.pyplot(fig2)
+
+# Display fused and raw/denoised scores
 st.markdown(f"**Raw DGC Score:**      {raw_score:.4f}")
 st.markdown(f"**Denoised DGC Score:** {denoised_score:.4f}")
 st.markdown(f"**Difference:**        {fused:.4f}")
-st.markdown(f"### Likelihood of Stego Interference: {likelihood:.1f}%")
 
 # Difference map visualization
 diff_map = cv2.absdiff(detail, denoised)
@@ -118,24 +118,11 @@ ax.imshow(diff_map, cmap='inferno')
 ax.axis('off')
 st.pyplot(fig)
 
-# Visual number line for continuous relative position
-st.subheader("Relative Position Between Clean & Stego Medians")
-fig2, ax2 = plt.subplots(figsize=(8,1.5))
-ax2.hlines(0, 0, 100, colors='gray', linewidth=4)
-ax2.plot(rel_pos, 0, 'o', markersize=10, color='red')
-ax2.text(0, 0.1, 'Clean median', ha='left', va='bottom', fontsize=10)
-ax2.text(100, 0.1, 'Stego median', ha='right', va='bottom', fontsize=10)
-ax2.text(rel_pos, -0.1, f"{rel_pos:.1f}%", ha='center', va='top', fontsize=10, color='red')
-ax2.axis('off')
-ax2.set_xlim(-20, 120)
-ax2.set_ylim(-0.5, 0.5)
-st.pyplot(fig2)
-
 # Explanation
 st.markdown("""
 **Difference Map Explained:**  
-Bright areas show where smoothing removed the most texture “bumps”—these hotspots mark where secret bits lived, driving the likelihood score.
+Bright spots indicate where smoothing removed the most high‑frequency bumps—these are likely embedding sites.  
 
 **Relative Position:**  
-A continuous marker showing where your image’s fused score lies between the typical clean median (0) and stego median (100), without snapping to extremes.
+The red marker shows where your image falls between the clean median (0%) and stego median (100%) of fused‑difference scores.
 """)
