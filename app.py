@@ -8,20 +8,20 @@ import matplotlib.pyplot as plt
 st.set_page_config(layout="wide")
 st.title("PVD Stego‑Interference Detector with DGC Metric")
 
-# ─── Fixed Settings ────────────────────────────────────────────────────
+# ─── Hardcoded Settings 
 P_EXPONENT     = 2.5        # block_dgc exponent
 WEIGHT_EXP     = 2          # block weight = sum(mag**WEIGHT_EXP)
 GRAD_THRESHOLD = 1.0        # ignore low‑energy blocks
 BLOCK_SIZE     = 7          # block size for DGC
 
-# ─── Empirical Medians ─────────────────────────────────────────────────
+# ─── Empirical Medians 
 MEDIAN_CLEAN   = 0.0030     # clean images median DGC
 MEDIAN_STEGO   = 0.0018     # stego images median DGC
 
 LOW_MEDIAN  = min(MEDIAN_CLEAN, MEDIAN_STEGO)
 HIGH_MEDIAN = max(MEDIAN_CLEAN, MEDIAN_STEGO)
 
-# ─── Helpers ──────────────────────────────────────────────────────────
+# ─── Helper Functions 
 def compute_gradients(gray):
     Gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     Gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
@@ -60,7 +60,7 @@ def get_wavelet_detail_image(gray):
 def get_wavelet_denoised_image(detail_img):
     return cv2.bilateralFilter(detail_img, d=9, sigmaColor=75, sigmaSpace=75)
 
-# ─── App Body ─────────────────────────────────────────────────────────
+# ─── App Body 
 uploaded = st.file_uploader("Upload a Grayscale Image", type=['png','jpg','jpeg'])
 if not uploaded:
     st.stop()
@@ -90,7 +90,7 @@ raw_score      = compute_weighted_dgc_score(detail)
 denoised_score = compute_weighted_dgc_score(denoised)
 fused          = raw_score - denoised_score
 
-# ─── Likelihood: linear ramp mapping ─────────────────────────────────
+# ─── Likelihood: linear ramp mapping 
 if fused <= LOW_MEDIAN:
     likelihood = 25.0 * (fused / LOW_MEDIAN) if LOW_MEDIAN > 0 else 0.0
 elif fused <= HIGH_MEDIAN:
@@ -100,7 +100,7 @@ else:
     frac = (fused - HIGH_MEDIAN) / (1.0 - HIGH_MEDIAN)
     likelihood = 75.0 + 25.0 * frac
 
-# ─── Continuous relative position clamped to [0,100] ────────────────
+# ─── Continuous relative position clamped to [0,100] 
 rel_pos = (fused - LOW_MEDIAN) / (HIGH_MEDIAN - LOW_MEDIAN) * 100
 rel_pos = float(np.clip(rel_pos, 0.0, 100.0))
 
