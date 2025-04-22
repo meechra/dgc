@@ -103,13 +103,3 @@ These values were found to yield the most accurate results. They were derived fr
    - Display original vs. denoised detail, difference map, and relative position number line.
 
 ---
-
-## License
-
-This project is released under the MIT License. See [LICENSE](LICENSE) for details.
-
----
-
-
-
-
