@@ -1,7 +1,7 @@
 # PVD Stego‑Interference Detector with DGC Metric
 
 Authors:
-Mitra Vinda M. (21BCE5665), Mithun Balaji V (22BCE5189), Darshini S (22BCE1003)
+Mitra Vinda M. (21BCE5665), Mithun Balaji V (22BCE5189), Dakshini S (22BCE1003)
 
 School of Computer Science and Engineering (SCOPE), Vellore Institute of Technology Chennai
 
